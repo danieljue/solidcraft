@@ -45,8 +45,8 @@ fn reversed(tp: &Toolpath) -> Toolpath {
         .iter()
         .rev()
         .map(|s| Segment::Line {
-            from: s.end(),
-            to: s.start(),
+            a: s.end(),
+            b: s.start(),
         })
         .collect();
     Toolpath {
@@ -94,8 +94,8 @@ pub fn min_line(toolpaths: Vec<Toolpath>, min_mm: f64) -> Vec<Toolpath> {
                 segments: kept
                     .windows(2)
                     .map(|w| Segment::Line {
-                        from: w[0],
-                        to: w[1],
+                        a: w[0],
+                        b: w[1],
                     })
                     .collect(),
                 closed,
@@ -156,18 +156,23 @@ pub fn linemerge(toolpaths: Vec<Toolpath>, tol_mm: f64) -> Vec<Toolpath> {
                         cand = reversed(&cand);
                     }
                     // Bridge the gap with a short segment so the chain stays connected.
+                    // Bridge the gap between whatever the chain ended on and whatever the
+                    // candidate starts with; `end()`/`start()` keep this independent of the
+                    // segment kind.
                     let bridge = match (chain.segments.last(), cand.segments.first()) {
-                        (Some(Segment::Line { to, .. }), Some(first)) => {
-                            if dist(*to, first.start()) > 1e-9 {
-                                Some((*to, first.start()))
+                        (Some(last_seg), Some(first)) => {
+                            let end = last_seg.end();
+                            let begin = first.start();
+                            if dist(end, begin) > 1e-9 {
+                                Some((end, begin))
                             } else {
                                 None
                             }
                         }
                         _ => None,
                     };
-                    if let Some((from, to)) = bridge {
-                        chain.segments.push(Segment::Line { from, to });
+                    if let Some((end_pt, start_pt)) = bridge {
+                        chain.segments.push(Segment::Line { a: end_pt, b: start_pt });
                     }
                     chain.segments.extend(cand.segments);
                 }
@@ -345,8 +350,8 @@ pub fn blade_offset(toolpaths: Vec<Toolpath>, offset_mm: f64, cutoff_deg: f64) -
                 segments: pivot
                     .windows(2)
                     .map(|w| Segment::Line {
-                        from: w[0],
-                        to: w[1],
+                        a: w[0],
+                        b: w[1],
                     })
                     .collect(),
                 closed,
@@ -384,7 +389,7 @@ mod tests {
 
     fn line_path(a: Point, b: Point) -> Toolpath {
         Toolpath {
-            segments: vec![Segment::Line { from: a, to: b }],
+            segments: vec![Segment::Line { a: a, b: b }],
             closed: false,
         }
     }
@@ -399,7 +404,7 @@ mod tests {
             Point::new(20.0, 0.0),
         ];
         let tp = Toolpath {
-            segments: pts.windows(2).map(|w| Segment::Line { from: w[0], to: w[1] }).collect(),
+            segments: pts.windows(2).map(|w| Segment::Line { a: w[0], b: w[1] }).collect(),
             closed: false,
         };
         let out = min_line(vec![tp], 0.5);

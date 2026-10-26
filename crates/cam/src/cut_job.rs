@@ -729,7 +729,7 @@ fn ring_to_toolpath(pts: &[Vec2], tol: f64) -> Option<Toolpath> {
     for i in 0..n {
         let a = clean[i];
         let b = clean[(i + 1) % n];
-        segments.push(Segment::Line { from: Point::new(a.x, a.y), to: Point::new(b.x, b.y) });
+        segments.push(Segment::Line { a: Point::new(a.x, a.y), b: Point::new(b.x, b.y) });
     }
     Some(Toolpath { segments, closed: true })
 }
@@ -750,15 +750,15 @@ fn add_leads(tp: &Toolpath, lead_in: f64, lead_out: f64) -> Toolpath {
     let mut segments: Vec<Segment> = Vec::with_capacity(tp.segments.len() + 2);
     if lead_in > 0.0 {
         segments.push(Segment::Line {
-            from: Point::new(p0.x - dir.x * lead_in, p0.y - dir.y * lead_in),
-            to: p0,
+            a: Point::new(p0.x - dir.x * lead_in, p0.y - dir.y * lead_in),
+            b: p0,
         });
     }
     segments.extend(tp.segments.iter().cloned());
     if lead_out > 0.0 {
         segments.push(Segment::Line {
-            from: p0,
-            to: Point::new(p0.x + dir.x * lead_out, p0.y + dir.y * lead_out),
+            a: p0,
+            b: Point::new(p0.x + dir.x * lead_out, p0.y + dir.y * lead_out),
         });
     }
     Toolpath { segments, closed: false }

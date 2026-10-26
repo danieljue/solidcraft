@@ -21,6 +21,9 @@ use crate::geom::{Point, Toolpath};
 use crate::post::Pen;
 use crate::profile::MachineProfile;
 
+/// Chord tolerance for flattening curves, in millimetres. Below what a drag knife resolves.
+const FLATTEN_TOL: f64 = 0.05;
+
 pub fn emit(profile: &MachineProfile, toolpaths: &[Toolpath]) -> String {
     emit_with_pen(profile, toolpaths, Pen::Down)
 }
@@ -51,19 +54,23 @@ pub fn emit_with_pen(profile: &MachineProfile, toolpaths: &[Toolpath], pen: Pen)
         cursor = start;
 
         for seg in &tp.segments {
-            let end = seg.end();
-            let (dx, dy) = ((end.x - cursor.x) * u, (end.y - cursor.y) * u);
-            match pen {
-                Pen::Down => {
-                    out.push_str(&format!("I{dx:.0},{dy:.0};"));
-                    blade_down = true;
+            // CSR is relative-only and has no arc word, so a curve becomes chords. Emitting
+            // the endpoint alone would cut the chord and lose the shape entirely.
+            let pts = seg.polyline(FLATTEN_TOL);
+            for end in pts.into_iter().skip(1) {
+                let (dx, dy) = ((end.x - cursor.x) * u, (end.y - cursor.y) * u);
+                match pen {
+                    Pen::Down => {
+                        out.push_str(&format!("I{dx:.0},{dy:.0};"));
+                        blade_down = true;
+                    }
+                    Pen::Up => {
+                        out.push_str(&format!("R{dx:.0},{dy:.0};"));
+                        blade_down = false;
+                    }
                 }
-                Pen::Up => {
-                    out.push_str(&format!("R{dx:.0},{dy:.0};"));
-                    blade_down = false;
-                }
+                cursor = end;
             }
-            cursor = end;
         }
 
         // Overcut: keep cutting past the start point so the entry and exit cuts separate
@@ -127,12 +134,12 @@ mod tests {
         let tp = Toolpath {
             segments: vec![
                 Segment::Line {
-                    from: Point::new(10.0, 20.0),
-                    to: Point::new(30.0, 20.0),
+                    a: Point::new(10.0, 20.0),
+                    b: Point::new(30.0, 20.0),
                 },
                 Segment::Line {
-                    from: Point::new(30.0, 20.0),
-                    to: Point::new(30.0, 40.0),
+                    a: Point::new(30.0, 20.0),
+                    b: Point::new(30.0, 40.0),
                 },
             ],
             closed: false,
@@ -160,8 +167,8 @@ mod tests {
     fn empty_header_and_footer_by_default() {
         let tp = Toolpath {
             segments: vec![Segment::Line {
-                from: Point::new(0.0, 0.0),
-                to: Point::new(1.0, 0.0),
+                a: Point::new(0.0, 0.0),
+                b: Point::new(1.0, 0.0),
             }],
             closed: false,
         };
@@ -180,8 +187,8 @@ mod tests {
     fn pen_up_uses_r_and_pen_down_uses_i() {
         let tp = Toolpath {
             segments: vec![Segment::Line {
-                from: Point::new(5.0, 0.0),
-                to: Point::new(15.0, 0.0),
+                a: Point::new(5.0, 0.0),
+                b: Point::new(15.0, 0.0),
             }],
             closed: false,
         };

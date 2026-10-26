@@ -1,13 +1,19 @@
-//! DMPL post-processor (US Cutter SC2 family).
+//! DM/PL post-processor for the SC-series vinyl cutters.
 //!
-//! The SC2 family's protocol definition gives:
-//! `EN=DMPL`, `HE=IN;PA;`, `MC=U%.0f,%.0f;`, `LC=D%.0f,%.0f;`,
-//! `PU=U;`, `FO=@`, `XU=40`, `YU=40`.
+//! The SC2 family's protocol definition gives the canonical forms used here:
+//!   MC=U%.0f,%.0f;       (move — pen up, absolute position)
+//!   LC=D%.0f,%.0f;       (line — pen down, cut to position)
+//!   HE=IN;PA;            (header)
+//!   FO=@                 (feed/eject)
+//!   SC=VS%.0f;           (speed)
+//!   XU=40 YU=40          (40 units per mm)
 //!
-//! DMPL is not HPGL: moves are `U`, draws are `D`, and the terminator is `@`.
+//! This dialect has no arc word. A curve is therefore flattened to chords in the shared
+//! loop, which is why `arc_to` is left at its default: the controller would reject an
+//! `AA` that HPGL accepts, so geometry is the one place the two families differ.
 
 use crate::geom::{Point, Toolpath};
-use crate::post::Pen;
+use crate::post::{CommandSet, Pen};
 use crate::profile::MachineProfile;
 
 pub fn emit(profile: &MachineProfile, toolpaths: &[Toolpath]) -> String {
@@ -15,22 +21,21 @@ pub fn emit(profile: &MachineProfile, toolpaths: &[Toolpath]) -> String {
 }
 
 pub fn emit_with_pen(profile: &MachineProfile, toolpaths: &[Toolpath], pen: Pen) -> String {
-    let u = profile.units_per_mm;
-    super::emit_generic(
-        profile,
-        toolpaths,
-        pen,
-        &|p: Point| move_cmd(p, u),
-        &|p: Point| draw_cmd(p, u),
-    )
+    super::emit_generic(profile, toolpaths, pen, &Dmpl { u: profile.units_per_mm })
 }
 
-fn move_cmd(p: Point, units_per_mm: f64) -> String {
-    format!("U{:.0},{:.0};", p.x * units_per_mm, p.y * units_per_mm)
+struct Dmpl {
+    u: f64,
 }
 
-fn draw_cmd(p: Point, units_per_mm: f64) -> String {
-    format!("D{:.0},{:.0};", p.x * units_per_mm, p.y * units_per_mm)
+impl CommandSet for Dmpl {
+    fn move_to(&self, p: Point) -> String {
+        format!("U{:.0},{:.0};", p.x * self.u, p.y * self.u)
+    }
+
+    fn line_to(&self, p: Point) -> String {
+        format!("D{:.0},{:.0};", p.x * self.u, p.y * self.u)
+    }
 }
 
 #[cfg(test)]

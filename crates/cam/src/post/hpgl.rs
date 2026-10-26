@@ -13,9 +13,12 @@
 //! only parse the two-command form, and matching the vendor's own output is the
 //! safest thing to send to a machine we cannot interrogate. The draw does NOT
 //! carry `PA`: absolute mode persists once set, and the draw form omits it.
+//!
+//! Arcs use `AA` — arc absolute — which takes the centre in plotter units and the sweep
+//! in degrees, positive counter-clockwise. The start point is wherever the pen already is.
 
 use crate::geom::{Point, Toolpath};
-use crate::post::Pen;
+use crate::post::{CommandSet, Pen};
 use crate::profile::MachineProfile;
 
 pub fn emit(profile: &MachineProfile, toolpaths: &[Toolpath]) -> String {
@@ -23,14 +26,38 @@ pub fn emit(profile: &MachineProfile, toolpaths: &[Toolpath]) -> String {
 }
 
 pub fn emit_with_pen(profile: &MachineProfile, toolpaths: &[Toolpath], pen: Pen) -> String {
-    let u = profile.units_per_mm;
-    super::emit_generic(
-        profile,
-        toolpaths,
-        pen,
-        &|p: Point| format!("PU;PA{:.0},{:.0};", p.x * u, p.y * u),
-        &|p: Point| format!("PD{:.0},{:.0};", p.x * u, p.y * u),
-    )
+    super::emit_generic(profile, toolpaths, pen, &Hpgl { u: profile.units_per_mm })
+}
+
+struct Hpgl {
+    u: f64,
+}
+
+impl CommandSet for Hpgl {
+    fn move_to(&self, p: Point) -> String {
+        format!("PU;PA{:.0},{:.0};", p.x * self.u, p.y * self.u)
+    }
+
+    fn line_to(&self, p: Point) -> String {
+        format!("PD{:.0},{:.0};", p.x * self.u, p.y * self.u)
+    }
+
+    /// `AA x,y,angle;`: the point is the arc's centre, the angle its sweep in degrees.
+    fn arc_to(
+        &self,
+        _from: Point,
+        _to: Point,
+        center: Point,
+        _radius: f64,
+        sweep: f64,
+    ) -> Option<String> {
+        Some(format!(
+            "AA{:.0},{:.0},{:.2};",
+            center.x * self.u,
+            center.y * self.u,
+            sweep.to_degrees()
+        ))
+    }
 }
 
 #[cfg(test)]
@@ -38,6 +65,7 @@ mod tests {
     use super::*;
     use crate::geom::Segment;
     use crate::profile::{MachineProfile, Protocol};
+    use std::f64::consts::PI;
 
     fn hpgl_profile() -> MachineProfile {
         MachineProfile {
@@ -56,37 +84,45 @@ mod tests {
         // A move must set absolute mode explicitly; the draw relies on it persisting.
         let tp = Toolpath {
             segments: vec![Segment::Line {
-                from: Point::new(0.0, 0.0),
-                to: Point::new(10.0, 20.0),
+                a: Point::new(0.0, 0.0),
+                b: Point::new(10.0, 20.0),
             }],
             closed: false,
         };
         let out = emit(&hpgl_profile(), &[tp]);
-        assert!(
-            out.contains("PU;PA0,0;"),
-            "move should set absolute mode: {out}"
-        );
-        assert!(
-            out.contains("PD400,800;"),
-            "draw should be a bare PD with coordinates: {out}"
-        );
-        assert!(
-            !out.contains("PD;PA"),
-            "draw must not repeat absolute mode: {out}"
-        );
+        assert!(out.contains("PU;PA0,0;"), "move should set absolute mode: {out}");
+        assert!(out.contains("PD400,800;"), "draw should be a bare PD with coordinates: {out}");
+        assert!(!out.contains("PD;PA"), "draw must not repeat absolute mode: {out}");
     }
 
     #[test]
     fn header_and_footer_wrap_the_job() {
         let tp = Toolpath {
             segments: vec![Segment::Line {
-                from: Point::new(0.0, 0.0),
-                to: Point::new(1.0, 1.0),
+                a: Point::new(0.0, 0.0),
+                b: Point::new(1.0, 1.0),
             }],
             closed: false,
         };
         let out = emit(&hpgl_profile(), &[tp]);
         assert!(out.starts_with("IN;"), "header first: {out}");
         assert!(out.ends_with("!PG;"), "footer last: {out}");
+    }
+
+    #[test]
+    fn an_arc_is_one_aa_command_in_degrees() {
+        let tp = Toolpath {
+            segments: vec![Segment::Arc {
+                center: Point::new(0.0, 0.0),
+                radius: 10.0,
+                start: 0.0,
+                sweep: PI / 2.0,
+            }],
+            closed: false,
+        };
+        let out = emit(&hpgl_profile(), &[tp]);
+        assert!(out.contains("AA0,0,90.00;"), "expected a quarter-turn AA: {out}");
+        assert_eq!(out.matches("AA").count(), 1, "{out}");
+        assert!(!out.contains("PD"), "the arc must not be flattened: {out}");
     }
 }

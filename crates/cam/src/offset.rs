@@ -251,7 +251,7 @@ fn closed_toolpath(pts: Vec<Point>) -> Toolpath {
         let from = pts[i];
         let to = pts[(i + 1) % n];
         if !near(from, to) {
-            segments.push(Segment::Line { from, to });
+            segments.push(Segment::Line { a: from, b: to });
         }
     }
     Toolpath {
@@ -395,8 +395,9 @@ mod tests {
         let mut tp = square();
         tp.segments.reverse();
         for s in &mut tp.segments {
-            let Segment::Line { from, to } = s;
-            std::mem::swap(from, to);
+            // `reversed()` covers every segment kind: an arc flips its sweep rather than
+            // being skipped by a pattern that only matched lines.
+            *s = s.reversed();
         }
         let before = signed_area(&tp.segments.iter().map(|s| s.start()).collect::<Vec<_>>());
         assert!(before < 0.0);
@@ -428,8 +429,8 @@ mod tests {
         // Two points.
         let tp = Toolpath {
             segments: vec![
-                Segment::Line { from: Point::new(0.0, 0.0), to: Point::new(1.0, 0.0) },
-                Segment::Line { from: Point::new(1.0, 0.0), to: Point::new(0.0, 0.0) },
+                Segment::Line { a: Point::new(0.0, 0.0), b: Point::new(1.0, 0.0) },
+                Segment::Line { a: Point::new(1.0, 0.0), b: Point::new(0.0, 0.0) },
             ],
             closed: true,
         };
@@ -437,9 +438,9 @@ mod tests {
         // Zero area: a line traced out and back.
         let tp = Toolpath {
             segments: vec![
-                Segment::Line { from: Point::new(0.0, 0.0), to: Point::new(10.0, 0.0) },
-                Segment::Line { from: Point::new(10.0, 0.0), to: Point::new(0.0, 0.0) },
-                Segment::Line { from: Point::new(0.0, 0.0), to: Point::new(5.0, 0.0) },
+                Segment::Line { a: Point::new(0.0, 0.0), b: Point::new(10.0, 0.0) },
+                Segment::Line { a: Point::new(10.0, 0.0), b: Point::new(0.0, 0.0) },
+                Segment::Line { a: Point::new(0.0, 0.0), b: Point::new(5.0, 0.0) },
             ],
             closed: true,
         };

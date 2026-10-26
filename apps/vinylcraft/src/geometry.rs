@@ -24,8 +24,8 @@ pub(crate) fn polylines_to_toolpaths(polys: &[Vec<Vec2>]) -> Vec<Toolpath> {
             let segments = p
                 .windows(2)
                 .map(|w| Segment::Line {
-                    from: Point::new(w[0].x, w[0].y),
-                    to: Point::new(w[1].x, w[1].y),
+                    a: Point::new(w[0].x, w[0].y),
+                    b: Point::new(w[1].x, w[1].y),
                 })
                 .collect();
             Toolpath { segments, closed }

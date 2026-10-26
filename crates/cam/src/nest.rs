@@ -107,6 +107,43 @@ fn rotate_ccw(p: Point) -> Point {
     Point::new(-p.y, p.x)
 }
 
+/// Turn one segment 90 degrees counter-clockwise.
+///
+/// Applied per kind so arcs stay arcs: the centre turns with the geometry, the radius is
+/// untouched, and the start angle advances by a quarter turn while the sweep — an angle
+/// difference — does not change.
+fn rotate_seg_ccw(seg: &Segment) -> Segment {
+    match *seg {
+        Segment::Line { a, b } => Segment::Line { a: rotate_ccw(a), b: rotate_ccw(b) },
+        Segment::Arc { center, radius, start, sweep } => Segment::Arc {
+            center: rotate_ccw(center),
+            radius,
+            start: start + std::f64::consts::FRAC_PI_2,
+            sweep,
+        },
+        Segment::Cubic { p0, p1, p2, p3 } => Segment::Cubic {
+            p0: rotate_ccw(p0),
+            p1: rotate_ccw(p1),
+            p2: rotate_ccw(p2),
+            p3: rotate_ccw(p3),
+        },
+        Segment::Conic { a, apex, b, w } => Segment::Conic {
+            a: rotate_ccw(a),
+            apex: rotate_ccw(apex),
+            b: rotate_ccw(b),
+            w,
+        },
+        Segment::Bezier { n, p } => {
+            let mut q = p;
+            let count = (n as usize).min(p.len().saturating_sub(1)) + 1;
+            for c in q.iter_mut().take(count) {
+                *c = rotate_ccw(*c);
+            }
+            Segment::Bezier { n, p: q }
+        }
+    }
+}
+
 /// Rigidly turn a job 90 degrees CCW and translate it so its bounding-box minimum sits at
 /// `(0, 0)`. Returning geometry in a known quadrant keeps the shelf arithmetic simple.
 fn rotate_to_origin(toolpaths: &[Toolpath]) -> Vec<Toolpath> {
@@ -116,12 +153,7 @@ fn rotate_to_origin(toolpaths: &[Toolpath]) -> Vec<Toolpath> {
             segments: tp
                 .segments
                 .iter()
-                .map(|seg| match seg {
-                    Segment::Line { from, to } => Segment::Line {
-                        from: rotate_ccw(*from),
-                        to: rotate_ccw(*to),
-                    },
-                })
+                .map(rotate_seg_ccw)
                 .collect(),
             closed: tp.closed,
         })

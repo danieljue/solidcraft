@@ -1,5 +1,11 @@
-//! Protocol post-processors. A post-processor turns toolpaths into bytes for
-//! one machine family. Add a module here for each protocol.
+//! Protocol post-processors. A post-processor turns toolpaths into bytes for one machine
+//! family. Add a module here for each protocol.
+//!
+//! Everything protocol-independent lives in [`emit_generic`]: travel to each contour, the
+//! pen/overcut rules, flattening of curves a controller cannot express, and the closing
+//! safety lift. A protocol module supplies only its command words through [`CommandSet`],
+//! which is what keeps a vinyl knife, a plasma torch and a laser emitting the same geometry
+//! from the same toolpath code.
 
 pub mod csr;
 pub mod dmpl;
@@ -7,7 +13,7 @@ pub mod gcode;
 pub mod gpgl;
 pub mod hpgl;
 
-use crate::geom::{Point, Toolpath};
+use crate::geom::{Point, Segment, Toolpath};
 use crate::profile::{MachineProfile, Protocol};
 
 /// Which pen state every segment is emitted in.
@@ -19,6 +25,41 @@ use crate::profile::{MachineProfile, Protocol};
 pub enum Pen {
     Down,
     Up,
+}
+
+/// The command words one controller understands.
+///
+/// A post-processor implements this and nothing else. `arc_to` returns `None` when the
+/// controller has no arc command, in which case the shared loop flattens the arc into
+/// chords at [`CommandSet::flatten_tol`] — so a format that cannot express a curve still
+/// cuts the same shape, it just uploads more points.
+pub trait CommandSet {
+    /// Travel with the tool clear of the material.
+    fn move_to(&self, p: Point) -> String;
+    /// Cut or mark from the current position to `p`.
+    fn line_to(&self, p: Point) -> String;
+
+    /// A circular arc from `from` to `to` about `center`. `sweep` is in radians and is
+    /// positive counter-clockwise, which is the sign convention every controller uses once
+    /// it is converted (G-code picks `G2`/`G3`, HPGL takes degrees).
+    fn arc_to(
+        &self,
+        _from: Point,
+        _to: Point,
+        _center: Point,
+        _radius: f64,
+        _sweep: f64,
+    ) -> Option<String> {
+        None
+    }
+
+    /// Chord tolerance for curves this format cannot express, in millimetres.
+    ///
+    /// 0.05 mm is below what a drag knife resolves on vinyl, and for a plasma torch it is
+    /// an order of magnitude finer than the kerf.
+    fn flatten_tol(&self) -> f64 {
+        0.05
+    }
 }
 
 pub fn emit(profile: &MachineProfile, toolpaths: &[Toolpath]) -> Result<String, PostError> {
@@ -52,21 +93,24 @@ fn check_limits(profile: &MachineProfile, toolpaths: &[Toolpath]) -> Result<(), 
     };
     for tp in toolpaths {
         for seg in &tp.segments {
-            let p = seg.end();
-            if let Some(mx) = max_x {
-                if p.x > mx + 1e-9 {
-                    return Err(PostError::OutOfBounds(format!(
-                        "design reaches x = {:.2} mm, past the machine's {:.2} mm travel",
-                        p.x, mx
-                    )));
+            // Sample the segment rather than only its end: an arc can bulge past its
+            // endpoints, and the carriage would hit the end stop in the middle of it.
+            for p in seg.polyline(0.5) {
+                if let Some(mx) = max_x {
+                    if p.x > mx + 1e-9 {
+                        return Err(PostError::OutOfBounds(format!(
+                            "design reaches x = {:.2} mm, past the machine's {:.2} mm travel",
+                            p.x, mx
+                        )));
+                    }
                 }
-            }
-            if let Some(my) = max_y {
-                if p.y > my + 1e-9 {
-                    return Err(PostError::OutOfBounds(format!(
-                        "design reaches y = {:.2} mm, past the machine's {:.2} mm travel",
-                        p.y, my
-                    )));
+                if let Some(my) = max_y {
+                    if p.y > my + 1e-9 {
+                        return Err(PostError::OutOfBounds(format!(
+                            "design reaches y = {:.2} mm, past the machine's {:.2} mm travel",
+                            p.y, my
+                        )));
+                    }
                 }
             }
         }
@@ -82,14 +126,13 @@ fn check_limits(profile: &MachineProfile, toolpaths: &[Toolpath]) -> Result<(), 
 /// single safety lift: a stream that stops on a draw leaves the knife pressed into the
 /// material and the operator has to free it by hand.
 ///
-/// `move_cmd` and `draw_cmd` supply the protocol's command words; the geometry and the
-/// pen/overcut rules live here so every protocol behaves the same.
+/// The geometry, the pen/overcut rules and curve flattening live here so every protocol
+/// behaves the same; `cmds` supplies only the command words.
 pub(crate) fn emit_generic(
     profile: &MachineProfile,
     toolpaths: &[Toolpath],
     pen: Pen,
-    move_cmd: &dyn Fn(Point) -> String,
-    draw_cmd: &dyn Fn(Point) -> String,
+    cmds: &dyn CommandSet,
 ) -> String {
     let mut out = String::new();
     out.push_str(&profile.header);
@@ -105,21 +148,14 @@ pub(crate) fn emit_generic(
         // A job must never begin with the blade pressed into the material: travel to
         // the contour's start with the pen up, even if the design starts at the origin.
         let start = first.start();
-        out.push_str(&move_cmd(start));
+        out.push_str(&cmds.move_to(start));
         blade_down = false;
         cursor = start;
 
         for seg in &tp.segments {
-            match pen {
-                Pen::Down => {
-                    out.push_str(&draw_cmd(seg.end()));
-                    blade_down = true;
-                }
-                Pen::Up => {
-                    out.push_str(&move_cmd(seg.end()));
-                    blade_down = false;
-                }
-            }
+            let down = pen == Pen::Down;
+            out.push_str(&segment_commands(cmds, seg, down));
+            blade_down = down;
             cursor = seg.end();
         }
 
@@ -135,11 +171,11 @@ pub(crate) fn emit_generic(
                 let over = Point::new(start.x + dx * k, start.y + dy * k);
                 match pen {
                     Pen::Down => {
-                        out.push_str(&draw_cmd(over));
+                        out.push_str(&cmds.line_to(over));
                         blade_down = true;
                     }
                     Pen::Up => {
-                        out.push_str(&move_cmd(over));
+                        out.push_str(&cmds.move_to(over));
                         blade_down = false;
                     }
                 }
@@ -150,10 +186,31 @@ pub(crate) fn emit_generic(
 
     // Safety: never hand the machine a stream that ends with the knife in the vinyl.
     if blade_down {
-        out.push_str(&move_cmd(cursor));
+        out.push_str(&cmds.move_to(cursor));
     }
 
     out.push_str(&profile.footer);
+    out
+}
+
+/// The commands for one segment: a native arc when the controller has one, otherwise the
+/// segment flattened to chords. A straight line flattens to a single command, so this costs
+/// nothing on the common path.
+fn segment_commands(cmds: &dyn CommandSet, seg: &Segment, down: bool) -> String {
+    if let Segment::Arc { center, radius, sweep, .. } = *seg {
+        // A dry run never uses the arc word: pen state is expressed by the command word in
+        // every dialect here, and a flattened move is unambiguous about the tool being up.
+        if down {
+            if let Some(txt) = cmds.arc_to(seg.start(), seg.end(), center, radius, sweep) {
+                return txt;
+            }
+        }
+    }
+    let mut out = String::new();
+    for p in seg.polyline(cmds.flatten_tol()).into_iter().skip(1) {
+        let cmd = if down { cmds.line_to(p) } else { cmds.move_to(p) };
+        out.push_str(&cmd);
+    }
     out
 }
 

@@ -169,12 +169,39 @@ fn solve_least_squares(design: &[Point], machine: &[Point]) -> Result<Similarity
 
 /// Apply a similarity to every segment of every toolpath, in place.
 pub fn apply_to_toolpaths(paths: &mut [Toolpath], xf: &Similarity) {
+    let scale = xf.a.hypot(xf.b);
+    let theta = xf.b.atan2(xf.a);
     for tp in paths {
         for seg in &mut tp.segments {
             match seg {
-                Segment::Line { from, to } => {
-                    *from = xf.apply(*from);
-                    *to = xf.apply(*to);
+                Segment::Line { a, b } => {
+                    *a = xf.apply(*a);
+                    *b = xf.apply(*b);
+                }
+                // A similarity maps a circle to a circle: the centre moves, the radius scales
+                // and the start angle turns. The sweep is untouched, because angles are
+                // preserved; negative sweeps stay clockwise.
+                Segment::Arc { center, radius, start, sweep: _ } => {
+                    *center = xf.apply(*center);
+                    *radius *= scale;
+                    *start += theta;
+                }
+                Segment::Cubic { p0, p1, p2, p3 } => {
+                    *p0 = xf.apply(*p0);
+                    *p1 = xf.apply(*p1);
+                    *p2 = xf.apply(*p2);
+                    *p3 = xf.apply(*p3);
+                }
+                Segment::Conic { a, apex, b, .. } => {
+                    *a = xf.apply(*a);
+                    *apex = xf.apply(*apex);
+                    *b = xf.apply(*b);
+                }
+                Segment::Bezier { n, p } => {
+                    let count = (*n as usize).min(p.len().saturating_sub(1)) + 1;
+                    for c in p.iter_mut().take(count) {
+                        *c = xf.apply(*c);
+                    }
                 }
             }
         }

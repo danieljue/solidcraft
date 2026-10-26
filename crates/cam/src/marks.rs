@@ -136,8 +136,8 @@ fn mark_at(p: Point, toward: Point, style: MarkStyle) -> Vec<Toolpath> {
                 let a0 = 2.0 * PI * i as f64 / n as f64;
                 let a1 = 2.0 * PI * (i + 1) as f64 / n as f64;
                 segs.push(Segment::Line {
-                    from: Point::new(p.x + r * a0.cos(), p.y + r * a0.sin()),
-                    to: Point::new(p.x + r * a1.cos(), p.y + r * a1.sin()),
+                    a: Point::new(p.x + r * a0.cos(), p.y + r * a0.sin()),
+                    b: Point::new(p.x + r * a1.cos(), p.y + r * a1.sin()),
                 });
             }
             let mut out = vec![Toolpath {
@@ -190,7 +190,7 @@ pub fn lift_marks(toolpaths: &[Toolpath], size_mm: f64) -> Vec<Toolpath> {
 
 fn line(a: Point, b: Point) -> Toolpath {
     Toolpath {
-        segments: vec![Segment::Line { from: a, to: b }],
+        segments: vec![Segment::Line { a: a, b: b }],
         closed: false,
     }
 }
@@ -295,8 +295,8 @@ mod tests {
         let closed = Toolpath::rectangle(0.0, 0.0, 10.0, 10.0);
         let open = Toolpath {
             segments: vec![Segment::Line {
-                from: Point::new(0.0, 0.0),
-                to: Point::new(10.0, 0.0),
+                a: Point::new(0.0, 0.0),
+                b: Point::new(10.0, 0.0),
             }],
             closed: false,
         };

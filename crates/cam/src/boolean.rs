@@ -153,8 +153,8 @@ fn to_toolpaths(shapes: Vec<Vec<Vec<[f64; 2]>>>) -> Vec<Toolpath> {
                 let a = contour[i];
                 let b = contour[(i + 1) % contour.len()];
                 segments.push(Segment::Line {
-                    from: Point::new(a[0], a[1]),
-                    to: Point::new(b[0], b[1]),
+                    a: Point::new(a[0], a[1]),
+                    b: Point::new(b[0], b[1]),
                 });
             }
             out.push(Toolpath {
@@ -239,8 +239,9 @@ mod tests {
         // hole when it sits inside a counter-clockwise one.
         tp.segments.reverse();
         for s in &mut tp.segments {
-            let Segment::Line { from, to } = s;
-            std::mem::swap(from, to);
+            // `reversed()` covers every segment kind: an arc flips its sweep rather than
+            // being skipped by a pattern that only matched lines.
+            *s = s.reversed();
         }
         tp
     }
@@ -364,12 +365,12 @@ mod tests {
         let open = Toolpath {
             segments: vec![
                 Segment::Line {
-                    from: Point::new(0.0, 0.0),
-                    to: Point::new(4.0, 0.0),
+                    a: Point::new(0.0, 0.0),
+                    b: Point::new(4.0, 0.0),
                 },
                 Segment::Line {
-                    from: Point::new(4.0, 0.0),
-                    to: Point::new(4.0, 4.0),
+                    a: Point::new(4.0, 0.0),
+                    b: Point::new(4.0, 4.0),
                 },
             ],
             closed: false,

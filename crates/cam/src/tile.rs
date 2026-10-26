@@ -185,7 +185,7 @@ fn clip_segment(seg: &Segment, rect: (f64, f64, f64, f64)) -> Option<Segment> {
     if (from.x - to.x).abs() < 1e-9 && (from.y - to.y).abs() < 1e-9 {
         return None;
     }
-    Some(Segment::Line { from, to })
+    Some(Segment::Line { a: from, b: to })
 }
 
 #[cfg(test)]
@@ -217,8 +217,8 @@ mod tests {
         // 100 mm wide, 40 mm tiles, 4 mm overlap -> advance 36 mm -> 3 columns.
         let tp = Toolpath {
             segments: vec![Segment::Line {
-                from: Point::new(0.0, 50.0),
-                to: Point::new(100.0, 50.0),
+                a: Point::new(0.0, 50.0),
+                b: Point::new(100.0, 50.0),
             }],
             closed: false,
         };
@@ -271,8 +271,8 @@ mod tests {
     #[test]
     fn segment_crossing_a_tile_edge_is_trimmed_exactly() {
         let seg = Segment::Line {
-            from: Point::new(-10.0, 50.0),
-            to: Point::new(10.0, 50.0),
+            a: Point::new(-10.0, 50.0),
+            b: Point::new(10.0, 50.0),
         };
         let clipped = clip_segment(&seg, (0.0, 0.0, 100.0, 100.0)).unwrap();
         assert_eq!(clipped.start(), Point::new(0.0, 50.0));
@@ -282,8 +282,8 @@ mod tests {
     #[test]
     fn segment_entirely_outside_is_dropped() {
         let seg = Segment::Line {
-            from: Point::new(-20.0, -20.0),
-            to: Point::new(-10.0, -10.0),
+            a: Point::new(-20.0, -20.0),
+            b: Point::new(-10.0, -10.0),
         };
         assert!(clip_segment(&seg, (0.0, 0.0, 100.0, 100.0)).is_none());
     }
