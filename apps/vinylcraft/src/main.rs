@@ -17,6 +17,8 @@ mod jobs;
 mod control;
 mod app;
 mod dispatch;
+#[cfg(test)]
+mod curve_tests;
 use geometry::*;
 use control::*;
 use app::VinylApp;
