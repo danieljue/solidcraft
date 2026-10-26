@@ -184,6 +184,28 @@ pub(crate) fn call_vinyl_tool(app: &mut VinylApp, name: &str, args: &Value) -> R
                 "state": state_json(app),
             }))
         }
+        "vinyl_export" => {
+            let path = args.get("path").and_then(Value::as_str).ok_or("missing `path`")?;
+            let format = args
+                .get("format")
+                .and_then(Value::as_str)
+                .unwrap_or("svg")
+                .to_ascii_lowercase();
+            if format != "svg" {
+                return Err(format!(
+                    "unsupported format {format:?}; only \"svg\" is supported"
+                ));
+            }
+            let svg = app.export_svg();
+            fs::write(path, &svg).map_err(|e| format!("{path}: {e}"))?;
+            Ok(json!({
+                "path": path,
+                "format": "svg",
+                "bytes": svg.len(),
+                "paths": app.raw_polylines.len(),
+                "design_bbox": [app.raw_bbox.0.x, app.raw_bbox.0.y, app.raw_bbox.1.x, app.raw_bbox.1.y],
+            }))
+        }
         "vinyl_load" => {
             let path = args.get("path").and_then(Value::as_str).ok_or("missing `path`")?;
             app.load_design(Path::new(path));

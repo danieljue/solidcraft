@@ -325,6 +325,48 @@ impl VinylApp {
         }
     }
 
+    /// The transformed design as an SVG document, in millimetres.
+    ///
+    /// Import is one-way today: a design can be loaded and cut, but never saved. This writes
+    /// the geometry the cutter would follow, so an edit can be exported and reopened rather
+    /// than rebuilt. Curves are already flattened by the time they reach `raw_polylines`, so
+    /// the output is polylines — accurate to the cut, not to the original beziers.
+    ///
+    /// Each contour is one `<polyline>`; the stroke is the colour it was drawn with, so a
+    /// multi-colour design keeps its grouping when it is read back.
+    pub(crate) fn export_svg(&self) -> String {
+        let polys = self.transformed();
+        let colors = self.transformed_colors();
+        let (min, max) = bbox_of(&polys);
+        let (w, h) = ((max.x - min.x).max(0.1), (max.y - min.y).max(0.1));
+        let mut out = String::new();
+        out.push_str(&format!(
+            "<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"{w:.3}mm\" height=\"{h:.3}mm\" \
+             viewBox=\"{:.3} {:.3} {w:.3} {h:.3}\">\n",
+            min.x, min.y
+        ));
+        out.push_str("  <g fill=\"none\" stroke-width=\"0.25\">\n");
+        for (i, poly) in polys.iter().enumerate() {
+            if poly.len() < 2 {
+                continue;
+            }
+            let color = colors
+                .get(i)
+                .and_then(|c| c.as_deref())
+                .unwrap_or("#000000");
+            out.push_str(&format!("    <polyline stroke=\"{color}\" points=\""));
+            for (k, p) in poly.iter().enumerate() {
+                if k > 0 {
+                    out.push(' ');
+                }
+                out.push_str(&format!("{:.3},{:.3}", p.x, p.y));
+            }
+            out.push_str("\"/>\n");
+        }
+        out.push_str("  </g>\n</svg>\n");
+        out
+    }
+
     /// How many edits can be taken back.
     const UNDO_DEPTH: usize = 32;
 
