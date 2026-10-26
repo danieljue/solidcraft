@@ -26,6 +26,18 @@ use crate::jobs::*;
 use crate::control::*;
 use crate::dispatch::{state_json, call_vinyl_tool};
 
+/// The part of the model a destructive operation can replace.
+///
+/// Offset, boolean and text all rewrite `raw_polylines` in place, and `vinyl_clear` throws
+/// them away. Snapshotting this trio before each of those lets the operator take the change
+/// back; keeping the transform out of it means undo never disturbs pan, zoom or placement.
+#[derive(Clone)]
+pub(crate) struct DesignSnapshot {
+    polylines: Vec<Vec<Vec2>>,
+    colors: Vec<Option<String>>,
+    bbox: (Vec2, Vec2),
+}
+
 pub(crate) struct VinylApp {
     pub(crate) profile: MachineProfile,
     pub(crate) profile_path: String,
@@ -92,6 +104,10 @@ pub(crate) struct VinylApp {
     /// space. Empty until `vinyl_job_add` is used; `vinyl_nest` packs the whole queue onto
     /// the roll in one pass.
     pub(crate) jobs: Vec<Job>,
+    /// Snapshots taken before each destructive design edit, newest last.
+    pub(crate) undo_stack: Vec<DesignSnapshot>,
+    /// Snapshots undone, newest last. Cleared by any new edit.
+    pub(crate) redo_stack: Vec<DesignSnapshot>,
 }
 
 impl Default for VinylApp {
@@ -197,6 +213,8 @@ impl Default for VinylApp {
             lift_marks_mm: None,
             tile_opts: None,
             jobs: Vec::new(),
+            undo_stack: Vec::new(),
+            redo_stack: Vec::new(),
         }
     }
 }
@@ -307,7 +325,62 @@ impl VinylApp {
         }
     }
 
+    /// How many edits can be taken back.
+    const UNDO_DEPTH: usize = 32;
+
+    fn snapshot(&self) -> DesignSnapshot {
+        DesignSnapshot {
+            polylines: self.raw_polylines.clone(),
+            colors: self.raw_colors.clone(),
+            bbox: self.raw_bbox,
+        }
+    }
+
+    fn restore(&mut self, s: DesignSnapshot) {
+        self.raw_polylines = s.polylines;
+        self.raw_colors = s.colors;
+        self.raw_bbox = s.bbox;
+        self.needs_fit = true;
+    }
+
+    /// Record the design as it stands, before an operation replaces it.
+    ///
+    /// Call this at the top of every method that rewrites `raw_polylines`; the snapshot is
+    /// what `undo` restores.
+    pub(crate) fn push_undo(&mut self) {
+        self.undo_stack.push(self.snapshot());
+        if self.undo_stack.len() > Self::UNDO_DEPTH {
+            self.undo_stack.remove(0);
+        }
+        self.redo_stack.clear();
+    }
+
+    /// Take back the last design edit. False when there is nothing to undo.
+    pub(crate) fn undo(&mut self) -> bool {
+        let Some(prev) = self.undo_stack.pop() else {
+            return false;
+        };
+        let now = self.snapshot();
+        self.redo_stack.push(now);
+        self.restore(prev);
+        self.log("Undo");
+        true
+    }
+
+    /// Reapply the last undone edit. False when there is nothing to redo.
+    pub(crate) fn redo(&mut self) -> bool {
+        let Some(next) = self.redo_stack.pop() else {
+            return false;
+        };
+        let now = self.snapshot();
+        self.undo_stack.push(now);
+        self.restore(next);
+        self.log("Redo");
+        true
+    }
+
     pub(crate) fn load_design(&mut self, path: &Path) {
+        self.push_undo();
         let ext = path.extension().and_then(|e| e.to_str()).unwrap_or("").to_ascii_lowercase();
         // SVG carries stroke/fill colour; DXF does not. Reading the coloured form for SVG is
         // what lets a multi-colour design split into one cutting job per colour later.
@@ -457,6 +530,7 @@ impl VinylApp {
         height_mm: f64,
         angle_rad: f64,
     ) -> Result<(usize, usize), String> {
+        self.push_undo();
         if text.trim().is_empty() {
             return Err("no text to add".into());
         }
@@ -530,6 +604,7 @@ impl VinylApp {
     /// design scaled up by 2 would have its outline doubled at emit time — the same as scaling
     /// any other geometry in the design.
     pub(crate) fn offset_design(&mut self, distance: f64, keep_original: bool) -> (usize, usize, usize) {
+        self.push_undo();
         if self.raw_polylines.is_empty() {
             return (0, 0, 0);
         }
@@ -633,6 +708,7 @@ impl VinylApp {
         fill: FillMode,
         clip: Option<(f64, f64, f64, f64)>,
     ) -> (usize, usize, usize) {
+        self.push_undo();
         if self.raw_polylines.is_empty() {
             return (0, 0, 0);
         }
@@ -1299,6 +1375,7 @@ impl VinylApp {
     /// A built-in sticker so the canvas is never empty and "move it around" can be tried at once.
     /// Three closed paths: a 300 × 150 mm rounded-rectangle outline and two concentric circles.
     pub(crate) fn load_demo(&mut self) {
+        self.push_undo();
         self.raw_polylines = vec![
             rounded_rect_poly(300.0, 150.0, 20.0, 12),
             circle_poly(Vec2::new(150.0, 75.0), 45.0, 64),

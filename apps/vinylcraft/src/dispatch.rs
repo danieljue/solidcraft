@@ -154,12 +154,35 @@ pub(crate) fn call_vinyl_tool(app: &mut VinylApp, name: &str, args: &Value) -> R
             Ok(state_json(app))
         }
         "vinyl_clear" => {
+            app.push_undo();
             app.raw_polylines.clear();
             app.raw_colors.clear();
             app.raw_bbox = (Vec2::ZERO, Vec2::ZERO);
             app.needs_fit = true;
             app.log("Cleared design");
             Ok(state_json(app))
+        }
+        "vinyl_undo" => {
+            let done = app.undo();
+            Ok(json!({
+                "undone": done,
+                "undo_depth": app.undo_stack.len(),
+                "redo_depth": app.redo_stack.len(),
+                "paths": app.raw_polylines.len(),
+                "status": if done { "reverted the last edit" } else { "nothing to undo" },
+                "state": state_json(app),
+            }))
+        }
+        "vinyl_redo" => {
+            let done = app.redo();
+            Ok(json!({
+                "redone": done,
+                "undo_depth": app.undo_stack.len(),
+                "redo_depth": app.redo_stack.len(),
+                "paths": app.raw_polylines.len(),
+                "status": if done { "reapplied the last edit" } else { "nothing to redo" },
+                "state": state_json(app),
+            }))
         }
         "vinyl_load" => {
             let path = args.get("path").and_then(Value::as_str).ok_or("missing `path`")?;

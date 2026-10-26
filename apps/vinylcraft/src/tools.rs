@@ -44,6 +44,16 @@ pub(crate) fn vinyl_tools() -> Vec<Value> {
             "inputSchema": tool_schema(json!({"path": str_prop("Path to a .svg or .dxf file")}), &["path"])
         }),
         json!({
+            "name": "vinyl_undo",
+            "description": "Take back the last design edit (load, clear, offset, boolean, text, demo). Up to 32 steps. Does not touch the transform, the roll, or the queued jobs.",
+            "inputSchema": tool_schema(json!({}), &[])
+        }),
+        json!({
+            "name": "vinyl_redo",
+            "description": "Reapply the last edit taken back by vinyl_undo. Any new edit clears the redo history.",
+            "inputSchema": tool_schema(json!({}), &[])
+        }),
+        json!({
             "name": "vinyl_transform",
             "description": "Move, scale, rotate or tile the design. Only the fields given change. offset_x/offset_y are millimetres, rotation_deg in degrees, copies 1-100.",
             "inputSchema": tool_schema(json!({
