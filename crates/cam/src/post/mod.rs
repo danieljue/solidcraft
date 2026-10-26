@@ -140,6 +140,9 @@ pub(crate) fn emit_generic(
 
     let mut cursor = Point::new(0.0, 0.0);
     let mut blade_down = false;
+    // Profiles differ: a knife on vinyl needs a finer chord than a plasma torch, and a
+    // format with native arcs never uses this at all.
+    let flatten_tol = profile.arc_tolerance_mm.max(1e-4);
 
     for tp in toolpaths {
         let Some(first) = tp.segments.first() else {
@@ -154,7 +157,7 @@ pub(crate) fn emit_generic(
 
         for seg in &tp.segments {
             let down = pen == Pen::Down;
-            out.push_str(&segment_commands(cmds, seg, down));
+            out.push_str(&segment_commands(cmds, seg, down, flatten_tol));
             blade_down = down;
             cursor = seg.end();
         }
@@ -196,7 +199,7 @@ pub(crate) fn emit_generic(
 /// The commands for one segment: a native arc when the controller has one, otherwise the
 /// segment flattened to chords. A straight line flattens to a single command, so this costs
 /// nothing on the common path.
-fn segment_commands(cmds: &dyn CommandSet, seg: &Segment, down: bool) -> String {
+fn segment_commands(cmds: &dyn CommandSet, seg: &Segment, down: bool, tol: f64) -> String {
     if let Segment::Arc { center, radius, sweep, .. } = *seg {
         // A dry run never uses the arc word: pen state is expressed by the command word in
         // every dialect here, and a flattened move is unambiguous about the tool being up.
@@ -207,7 +210,7 @@ fn segment_commands(cmds: &dyn CommandSet, seg: &Segment, down: bool) -> String 
         }
     }
     let mut out = String::new();
-    for p in seg.polyline(cmds.flatten_tol()).into_iter().skip(1) {
+    for p in seg.polyline(tol).into_iter().skip(1) {
         let cmd = if down { cmds.line_to(p) } else { cmds.move_to(p) };
         out.push_str(&cmd);
     }
@@ -220,4 +223,50 @@ pub enum PostError {
     Unsupported(String),
     #[error("design outside machine travel: {0}")]
     OutOfBounds(String),
+}
+
+#[cfg(test)]
+mod tolerance_tests {
+    use super::*;
+    use crate::profile::{MachineProfile, Protocol};
+
+    fn dmpl_with_tolerance(tol: f64) -> MachineProfile {
+        MachineProfile {
+            name: "tolerance".into(),
+            protocol: Protocol::Dmpl,
+            units_per_mm: 40.0,
+            overcut_mm: 0.0,
+            arc_tolerance_mm: tol,
+            ..MachineProfile::default()
+        }
+    }
+
+    #[test]
+    fn a_coarser_tolerance_streams_fewer_chords() {
+        let tp = Toolpath::circle(Point::new(50.0, 50.0), 40.0);
+        let fine = emit(&dmpl_with_tolerance(0.01), &[tp.clone()]).unwrap();
+        let coarse = emit(&dmpl_with_tolerance(1.0), &[tp]).unwrap();
+        let fine_draws = fine.matches('D').count();
+        let coarse_draws = coarse.matches('D').count();
+        assert!(
+            coarse_draws < fine_draws,
+            "coarse {coarse_draws} chords should be fewer than fine {fine_draws}"
+        );
+        assert!(coarse_draws > 8, "even a coarse circle needs real chords, got {coarse_draws}");
+    }
+
+    #[test]
+    fn a_native_arc_dialect_ignores_the_tolerance_entirely() {
+        // HPGL has AA, so the tolerance cannot change the output: there is nothing to flatten.
+        let mut p = dmpl_with_tolerance(0.01);
+        p.protocol = Protocol::Hpgl;
+        p.header = "IN;".into();
+        p.footer = "!PG;".into();
+        let tp = Toolpath::circle(Point::ZERO, 25.0);
+        let fine = emit(&p, &[tp.clone()]).unwrap();
+        p.arc_tolerance_mm = 5.0;
+        let coarse = emit(&p, &[tp]).unwrap();
+        assert_eq!(fine, coarse, "AA output must not depend on the chord tolerance");
+        assert_eq!(fine.matches("AA").count(), 2, "{fine}");
+    }
 }

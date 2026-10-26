@@ -32,6 +32,16 @@ pub struct MachineProfile {
     #[serde(default)]
     pub overcut_mm: f64,
 
+    /// Largest allowed deviation, in millimetres, when a curve has to be approximated by
+    /// chords because the controller has no arc or Bézier command.
+    ///
+    /// A drag knife resolves about a tenth of a millimetre on vinyl, so 0.05 mm is
+    /// invisible; a plasma torch with a 1 mm kerf does not benefit from anything finer,
+    /// and coarse chords make the job far smaller to stream. Profiles that emit native
+    /// arcs (`G2`/`G3`, HPGL `AA`) ignore this.
+    #[serde(default = "default_arc_tolerance_mm")]
+    pub arc_tolerance_mm: f64,
+
     // ---- Machine setup commands -------------------------------------------------
     // The SC2 family's serial command set uses `!FS%.0f;` for force, `VS%.0f;` for
     // speed and `US%.0f;` for up-speed. `{}` is replaced by the value. A command is emitted only when BOTH template and value
@@ -180,6 +190,11 @@ impl MachineProfile {
     }
 }
 
+/// Chord tolerance when a profile does not name one: fine enough for a knife on vinyl.
+fn default_arc_tolerance_mm() -> f64 {
+    0.05
+}
+
 impl Default for MachineProfile {
     fn default() -> Self {
         Self {
@@ -190,6 +205,7 @@ impl Default for MachineProfile {
             footer: String::new(),
             serial: None,
             overcut_mm: 0.0,
+            arc_tolerance_mm: default_arc_tolerance_mm(),
             force_cmd: None,
             force: None,
             speed_cmd: None,
