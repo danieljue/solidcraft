@@ -1,0 +1,23 @@
+[package]
+name = "vinylcraft"
+description = "VinylCraft: 2D vector design and vinyl cutter control (SolidCraft MANUFACTURE prototype)"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish = false
+default-run = "vinylcraft"
+
+[dependencies]
+solidcraft-io = { workspace = true }
+solidcraft-geom = { workspace = true }
+solidcraft-cam = { workspace = true }
+# Text glyph outlines: the sketch crate's font engine turns a Geom2::Text primitive into cut
+# contours. Pulling the crate in is the "sketch mode ability" reused rather than reimplemented —
+# it already handles TrueType quadratic and OpenType cubic outlines, and ships an embedded font.
+solidcraft-sketch = { workspace = true }
+eframe = { workspace = true, features = ["default_fonts", "wgpu", "accesskit", "wayland", "x11", "links"] }
+egui = { workspace = true }
+rfd = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+serialport = "4"

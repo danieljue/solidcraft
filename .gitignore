@@ -15,3 +15,9 @@ mutants.out*/
 # external corpus downloads (cargo xtask external-corpus, #1397): fetched at test time,
 # hash-pinned in tests/external-corpus.toml; never commit case data
 /corpus/
+
+# Emitted cutter command streams (regenerate with --emit)
+*.dmpl
+
+# Internal session notes — not part of the product
+SESSION_SUMMARY.md

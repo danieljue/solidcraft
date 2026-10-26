@@ -1,0 +1,17 @@
+{
+  "name": "HPGL (Graphtec / generic)",
+  "protocol": "hpgl",
+  "units_per_mm": 40.0,
+  "header": "IN;",
+  "footer": "!PG;",
+  "_comment": "HPGL is Hewlett-Packard's published plotter language. HE=IN; is the header and FD=!PG; the feed/eject footer; XU=40 YU=40 is 40 plotter units per mm. The move and draw command forms (MC=PU;PA%.0f,%.0f; and LC=PD%.0f,%.0f;) are built into the HPGL post-processor, so they are not repeated here. This profile declares no serial settings and no force/speed values, so the machine keeps its front-panel settings: the machine keeps its front-panel settings. Set max_x_mm/max_y_mm for your plotter's real travel to get an out-of-bounds refusal instead of a carriage crash.",
+  "max_x_mm": null,
+  "max_y_mm": null,
+  "_tool_comment": "HPGL is a pen language first. A plotter pen has no drag-knife trail, so blade_offset_mm stays 0. If this profile drives a vinyl cutter in HPGL emulation mode, raise blade_offset_mm to 0.25-0.35 for a 45/60 degree blade.",
+  "blade_offset_mm": 0.0,
+  "min_line_mm": 0.0,
+  "linemerge_tol_mm": 0.0,
+  "repeat_passes": 1,
+  "overcut_mm": 0.0,
+  "serial": null
+}

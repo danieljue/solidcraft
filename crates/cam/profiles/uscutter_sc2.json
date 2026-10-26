@@ -1,0 +1,41 @@
+{
+  "name": "US Cutter SC2",
+  "protocol": "dmpl",
+  "units_per_mm": 40.0,
+  "header": "IN;PA;",
+  "footer": "@",
+  "_comment": "Setup commands follow the SC2's serial command set, the same !FS/VS/US words its own front panel uses. A command is sent only when its value is also set; leave the value null to keep the cutter's front-panel setting. Typical: force 80-160, speed 20-60, up_speed 40-80 (machine units).", 
+  "force_cmd": "!FS{};",
+  "force": null,
+  "speed_cmd": "VS{};",
+  "speed": null,
+  "up_speed_cmd": "US{};",
+  "up_speed": null,
+  "_limits_comment": "max_x_mm is the model's cutting width. The SC2 ships in 28/34/53 inch widths = 635 / 863.6 / 1346.2 mm. This unit is the 28 inch model. null = no declared limit.",
+  "max_x_mm": 635.0,
+  "max_y_mm": null,
+  "_quality_comment": "blade_offset_mm: drag-knife tip offset (0 = off; 0.25-0.5 typical). min_line_mm: drop segments shorter than this (0 = off). linemerge_tol_mm: join open contours whose ends meet within this distance (0 = off). repeat_passes: cut each contour N times (1 = once).",
+  "blade_offset_mm": 0.25,
+  "min_line_mm": 0.0,
+  "linemerge_tol_mm": 0.0,
+  "repeat_passes": 1,
+  "overcut_mm": 0.0,
+  "_tool_presets_comment": "A drag knife trails its pivot, so each blade angle needs its own offset: 45 degrees about 0.25 mm, 60 degrees about 0.35 mm, reflective-vinyl 60 degrees 0.5 mm. Pens, crease, score and emboss tools have no drag-knife trail at all. Force stays null so the operator's own downforce setting is kept; a vendor's preset force column is often on its own unit scale and does not map onto !FS values.",
+  "tool_presets": [
+    { "name": "Drag Knife (30deg)", "force": null, "speed": null, "blade_offset_mm": 0.18, "repeat_passes": 1 },
+    { "name": "Drag Knife (45deg)", "force": null, "speed": null, "blade_offset_mm": 0.25, "repeat_passes": 1 },
+    { "name": "Drag Knife (60deg)", "force": null, "speed": null, "blade_offset_mm": 0.35, "repeat_passes": 1 },
+    { "name": "Drag Knife (60deg) reflective", "force": null, "speed": null, "blade_offset_mm": 0.5, "repeat_passes": 2 },
+    { "name": "Pen Tool", "force": 0.0, "speed": null, "blade_offset_mm": 0.0, "repeat_passes": 1 },
+    { "name": "Fold/Crease Tool", "force": 0.0, "speed": null, "blade_offset_mm": 0.0, "repeat_passes": 1 },
+    { "name": "Score Tool", "force": 0.0, "speed": null, "blade_offset_mm": 0.0, "repeat_passes": 1 },
+    { "name": "Emboss Tool", "force": 0.0, "speed": null, "blade_offset_mm": 0.0, "repeat_passes": 1 }
+  ],
+  "active_tool": "Drag Knife (45deg)",
+  "serial": {
+    "_comment": "The port here is a fallback only. The app scans present serial ports and prefers a device whose USB descriptor identifies a cutter bridge; when no bridge is present and exactly one port exists, it uses that port. On this bench the cutter IS COM3 (USB VID_0483 PID_5740, an STM32 running native USB CDC that labels itself a Virtual COM Port). COM4 is a phantom CH340 node that no longer exists and must not be used. COM3 was confirmed by observed blade movement.",
+    "port": "COM3",
+    "baud": 57600,
+    "flow": "rtscts"
+  }
+}

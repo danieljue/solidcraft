@@ -1,0 +1,20 @@
+[package]
+name = "solidcraft-cam"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+description = "Generic 2D CAM and vinyl-cutter post-processors for SolidCraft"
+
+[dependencies]
+# The 3D→2D bridge (`cut_job`) needs Mesh and Plane from the geometry crate. This is the only
+# place in cam that knows about 3D: the rest of the crate stays a 2D toolpath library.
+solidcraft-geom = { workspace = true }
+i_overlay = "9.1.0"
+serde.workspace = true
+serde_json.workspace = true
+thiserror.workspace = true
+
+[features]
+default = []
+serial = []

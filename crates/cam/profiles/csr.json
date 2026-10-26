@@ -1,0 +1,23 @@
+{
+  "name": "CSR (relative-only)",
+  "protocol": "csr",
+  "units_per_mm": 40.0,
+  "header": "",
+  "footer": "",
+  "_comment": "CSR is a relative-only protocol: R%.0f,%.0f moves without cutting and I%.0f,%.0f cuts while moving. Some vendor documentation annotates these as MC=R.../r/l and LC=I.../r/l, where /r/l means relative/line and is an annotation, not part of the bytes sent. The protocol declares no header, no footer, and no force/speed/up-speed commands. Every coordinate is a delta from the carriage's current position, so the emitter tracks position across the whole job. Because there is no explicit pen-up word, a zero-length R0,0; is sent as a safety lift when a job ends on a draw. ",
+  "force_cmd": null,
+  "force": null,
+  "speed_cmd": null,
+  "speed": null,
+  "up_speed_cmd": null,
+  "up_speed": null,
+  "max_x_mm": null,
+  "max_y_mm": null,
+  "_tool_comment": "CSR drives drag-knife cutters. 0.25 mm suits a 45 degree blade; a pen or crease tool wants 0.",
+  "blade_offset_mm": 0.25,
+  "min_line_mm": 0.0,
+  "linemerge_tol_mm": 0.0,
+  "repeat_passes": 1,
+  "overcut_mm": 0.0,
+  "serial": null
+}

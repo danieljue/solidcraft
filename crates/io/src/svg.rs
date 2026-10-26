@@ -3,6 +3,8 @@
 //! units are CSS pixels (1/96 in) unless the root's `width`/`height` carry units with a
 //! `viewBox`; y is flipped so the drawing reads upright in the sketch.
 
+use std::collections::HashMap;
+
 use quick_xml::Reader;
 use quick_xml::events::{BytesStart, Event};
 use solidcraft_geom::Vec2;
@@ -41,6 +43,24 @@ impl Tf {
         let [a, b, c, d, ..] = self.0;
         a * d - b * c < 0.0
     }
+    /// Inverse affine map. `None` for a degenerate matrix (zero scale), which cannot be
+    /// inverted and would produce infinities if forced.
+    fn inverse(self) -> Option<Tf> {
+        let [a, b, c, d, e, f] = self.0;
+        let det = a * d - b * c;
+        if det.abs() < 1e-12 {
+            return None;
+        }
+        let inv = 1.0 / det;
+        Some(Tf([
+            d * inv,
+            -b * inv,
+            -c * inv,
+            a * inv,
+            (c * f - d * e) * inv,
+            (b * e - a * f) * inv,
+        ]))
+    }
     fn is_finite(self) -> bool {
         self.0.iter().all(|x| x.is_finite())
     }
@@ -62,6 +82,54 @@ fn geom_is_finite(g: &Geom2) -> bool {
 }
 
 const OUT_OF_RANGE: &str = "SVG geometry is out of range: a transform or size scales a shape past the largest number SolidCraft can store";
+
+/// Apply a second affine map to a geometry element that is already in root coordinates.
+/// Used to replay a `<defs>` definition at each `<use>` site: the definition was captured
+/// with its own transform applied, so the use's transform is composed as a delta.
+fn reapply(g: Geom2, tf: Tf) -> Geom2 {
+    match g {
+        Geom2::Point(p) => Geom2::Point(tf.apply(p)),
+        Geom2::Line(a, b) => Geom2::Line(tf.apply(a), tf.apply(b)),
+        Geom2::Circle(c, r) => {
+            let s = tf.uniform().unwrap_or(1.0).abs();
+            Geom2::Circle(tf.apply(c), r * s)
+        }
+        Geom2::Arc { c, a, b } => Geom2::Arc {
+            c: tf.apply(c),
+            a: tf.apply(a),
+            b: tf.apply(b),
+        },
+        Geom2::Ellipse { c, major, minor } => {
+            let s = tf.uniform().unwrap_or(1.0).abs();
+            Geom2::Ellipse {
+                c: tf.apply(c),
+                major: tf.apply(major),
+                minor: minor * s,
+            }
+        }
+        Geom2::Spline { pts, control, degree } => Geom2::Spline {
+            pts: pts.iter().map(|p| tf.apply(*p)).collect(),
+            control,
+            degree,
+        },
+        Geom2::Conic { a, apex, b, rho } => Geom2::Conic {
+            a: tf.apply(a),
+            apex: tf.apply(apex),
+            b: tf.apply(b),
+            rho,
+        },
+        Geom2::Text { text, at, height, angle } => {
+            let s = tf.uniform().unwrap_or(1.0).abs();
+            let dir = tf.vec(Vec2::new(angle.cos(), angle.sin()));
+            Geom2::Text {
+                text,
+                at: tf.apply(at),
+                height: height * s,
+                angle: dir.angle(),
+            }
+        }
+    }
+}
 
 fn numbers(s: &str) -> Vec<f64> {
     // Numbers separated by commas/space, also "1-2" and "1.5.5" forms.
@@ -168,6 +236,14 @@ fn length_mm(s: &str) -> Option<f64> {
 
 struct Out {
     g: Vec<Geom2>,
+    /// Parallel to `g`: the stroke/fill colour in effect for each entity, `None` when the
+    /// document declares none. Kept alongside the geometry rather than inside [`Geom2`] so
+    /// callers that only want geometry are unaffected.
+    colors: Vec<Option<String>>,
+    /// Colour in effect for the element being processed. The event loop sets this before
+    /// dispatching an element and restores the inherited value when the element closes, so
+    /// every `push` during that element records the same colour.
+    current: Option<String>,
 }
 
 impl Out {
@@ -179,7 +255,18 @@ impl Out {
             return Err(IoError::Invalid(OUT_OF_RANGE.into()));
         }
         self.g.push(g);
+        self.colors.push(self.current.clone());
         Ok(())
+    }
+
+    /// Drop geometry past `mark`, keeping the colour vector in lockstep.
+    ///
+    /// Called when a definition container closes: its contents were captured for `<use>`
+    /// replay and must not also render in place. Truncating only `g` would desynchronise the
+    /// two vectors and attribute every later entity to the wrong colour.
+    fn truncate(&mut self, mark: usize) {
+        self.g.truncate(mark);
+        self.colors.truncate(mark);
     }
     fn line(&mut self, t: Tf, a: Vec2, b: Vec2) -> Result<()> {
         let (a, b) = (t.apply(a), t.apply(b));
@@ -411,7 +498,7 @@ fn points_list(s: &str) -> Vec<Vec2> {
 }
 
 /// Read the geometry of an SVG document (millimetres, y up). `scale` multiplies the result.
-pub fn read_svg(text: &str) -> Result<Vec<Geom2>> {
+fn read_svg_inner(text: &str) -> Result<(Vec<Geom2>, Vec<Option<String>>)> {
     if text.len() > MAX_DRAWING_BYTES {
         return Err(IoError::Invalid("the SVG file is too large".into()));
     }
@@ -419,16 +506,57 @@ pub fn read_svg(text: &str) -> Result<Vec<Geom2>> {
     rd.config_mut().trim_text(true);
     let mut buf = Vec::new();
     let mut stack: Vec<Tf> = Vec::new();
-    let mut out = Out { g: Vec::new() };
+    // Colour inheritance stack, parallel to `stack`: a Start pushes the colour its children
+    // inherit and its End pops it. SVG inherits stroke/fill down the element tree, so this
+    // mirrors how `stack` carries the transform.
+    let mut style_stack: Vec<Option<String>> = Vec::new();
+    let mut out = Out { g: Vec::new(), colors: Vec::new(), current: None };
     let mut root: Option<Tf> = None;
     let mut pending_text: Option<(Tf, Vec2, f64)> = None;
+    // `<defs>`/`<symbol>` hold geometry that only renders where a `<use>` points at it.
+    // Emitting it directly cuts the definition at its own coordinates — silently wrong.
+    // Capture it here and replay it at each use site. The colour vector is carried along
+    // with the geometry so a definition drawn in red stays red when it is replayed.
+    let mut defs: HashMap<String, (Tf, Vec<Geom2>, Vec<Option<String>>)> = HashMap::new();
+    let mut defs_depth: usize = 0;
+    // Marks in `out.g` where each `<defs>`/`<symbol>` started, so uncaptured geometry can
+    // be dropped when the container closes. Parallel to those Start events.
+    let mut defs_marks: Vec<usize> = Vec::new();
+    // Parallel to `stack`: one entry per open Start element, holding its name and the
+    // capture it owns (id, mark in `out.g`, transform) when inside a definition.
+    let mut marks: Vec<(String, Option<(String, usize, Tf)>)> = Vec::new();
+    // `<use>` sites whose target was not yet defined; resolved after the document is read.
+    let mut pending_uses: Vec<(String, Tf)> = Vec::new();
     loop {
         let ev = rd.read_event_into(&mut buf).map_err(|e| IoError::Invalid(format!("SVG: {e}")))?;
         let (e, empty) = match &ev {
             Event::Start(e) => (Some(e.clone()), false),
             Event::Empty(e) => (Some(e.clone()), true),
-            Event::End(_) => {
+            Event::End(end) => {
+                let name = String::from_utf8_lossy(end.local_name().as_ref()).to_string();
+                // Capture first. Inside a definition container the geometry must be dropped
+                // from the output stream: a definition is not cut where it is written. An
+                // identified element outside a container both renders in place and serves as
+                // a `<use>` target, so its geometry stays.
+                if let Some((_, Some((id, mark, tf)))) = marks.pop() {
+                    defs.insert(
+                        id,
+                        (tf, out.g[mark..].to_vec(), out.colors[mark..].to_vec()),
+                    );
+                    if defs_depth > 0 {
+                        out.truncate(mark);
+                    }
+                }
+                if name == "defs" || name == "symbol" {
+                    defs_depth = defs_depth.saturating_sub(1);
+                    if let Some(mark) = defs_marks.pop() {
+                        // Anything left in the buffer was never identified; dropping it beats
+                        // cutting a definition in the wrong place.
+                        out.truncate(mark);
+                    }
+                }
                 stack.pop();
+                style_stack.pop();
                 buf.clear();
                 continue;
             }
@@ -473,6 +601,27 @@ pub fn read_svg(text: &str) -> Result<Vec<Geom2>> {
         if !tf.is_finite() {
             return Err(IoError::Invalid(OUT_OF_RANGE.into()));
         }
+        // Colour inheritance: an element's own stroke/fill wins over what it inherits from its
+        // ancestors. The stack mirrors `stack` (transforms) — a Start pushes and its End pops —
+        // so the value recorded here is the one in force for everything this element emits.
+        let inherited = style_stack.last().cloned().flatten();
+        let effective = colour_of(&a).or(inherited);
+        out.current = effective.clone();
+        // Any element with an `id` is a potential `<use>` target — SVG does not require the
+        // target to live inside `<defs>`. Capture every identified element so a later
+        // `<use href="#id">` resolves, but only *hide* its geometry when it sits inside a
+        // definition container. An identified element outside `<defs>` renders in place AND
+        // is usable as a target, which is the spec's behaviour.
+        let id = attr(&a, "id").filter(|s| !s.is_empty()).map(|s| s.to_string());
+        let container = name == "defs" || name == "symbol";
+        let mut capture: Option<(String, usize, Tf)> = None;
+        if let Some(id) = id.clone() {
+            capture = Some((id, out.g.len(), tf));
+        }
+        if container {
+            defs_depth += 1;
+            defs_marks.push(out.g.len());
+        }
         match name.as_str() {
             "path" => path(&mut out, tf, attr(&a, "d").unwrap_or(""))?,
             "line" => out.line(tf, Vec2::new(num_attr(&a, "x1"), num_attr(&a, "y1")), Vec2::new(num_attr(&a, "x2"), num_attr(&a, "y2")))?,
@@ -512,17 +661,152 @@ pub fn read_svg(text: &str) -> Result<Vec<Geom2>> {
                 let size = attr(&a, "font-size").map(numbers).and_then(|v| v.first().copied()).unwrap_or(16.0);
                 pending_text = Some((tf, Vec2::new(num_attr(&a, "x"), num_attr(&a, "y")), size));
             }
+            "use" => {
+                // `<use href="#id">` renders the referenced definition here. `x`/`y` shift the
+                // instance and `transform` is already folded into `tf`, matching the spec order
+                // (use transform, then its x/y translate, then the definition's own transform).
+                let href = attr(&a, "href").or_else(|| attr(&a, "xlink:href"));
+                let target = href.and_then(|h| {
+                    let h = h.trim();
+                    h.strip_prefix('#').filter(|s| !s.is_empty()).map(|s| s.to_string())
+                });
+                let shift = Vec2::new(num_attr(&a, "x"), num_attr(&a, "y"));
+                let site = tf.mul(Tf([1.0, 0.0, 0.0, 1.0, shift.x, shift.y]));
+                match target {
+                    Some(id) => match defs.get(&id) {
+                        Some((def_tf, geom, colors)) => {
+                            // Replay the definition at this site: undo where it was written,
+                            // then apply the use's placement. One affine delta is exact. Each
+                            // entity keeps the colour it was captured with, so a red definition
+                            // stays red wherever a `<use>` points at it.
+                            let delta = def_tf.inverse().map(|inv| site.mul(inv));
+                            for (g, c) in geom.iter().zip(colors.iter()) {
+                                let saved = out.current.clone();
+                                out.current = c.clone();
+                                match delta {
+                                    Some(d) => out.push(reapply(g.clone(), d))?,
+                                    // Degenerate definition transform: place it unmoved rather
+                                    // than emit infinities.
+                                    None => out.push(g.clone())?,
+                                }
+                                out.current = saved;
+                            }
+                        }
+                        None => {
+                            // Forward reference or missing id. Keep the site so it can be
+                            // resolved once the document is fully read.
+                            pending_uses.push((id, site));
+                        }
+                    },
+                    None => {}
+                }
+            }
             _ => {}
         }
-        if !empty {
+        // An Empty element inside a definition has no End event, so capture it now.
+        if empty {
+            if let Some((id, mark, tf)) = capture {
+                defs.insert(
+                    id,
+                    (tf, out.g[mark..].to_vec(), out.colors[mark..].to_vec()),
+                );
+                // Hide the geometry only when this element is a definition. An identified
+                // element outside `<defs>` renders in place and is merely *also* a target.
+                if defs_depth > 0 {
+                    out.truncate(mark);
+                }
+            }
+            if container {
+                // A self-closing `<defs/>` or `<symbol/>` never produces an End event, so
+                // unwind its container bookkeeping here instead of leaving it dangling.
+                defs_depth = defs_depth.saturating_sub(1);
+                defs_marks.pop();
+            }
+        } else {
             stack.push(tf);
+            style_stack.push(effective);
+            marks.push((name, capture));
             if stack.len() > MAX_DEPTH {
                 return Err(IoError::Invalid("SVG nested too deeply".into()));
             }
         }
         buf.clear();
     }
-    Ok(out.g)
+    // Resolve uses whose definition appeared later in the document (or was itself a use).
+    for (id, site) in pending_uses {
+        let Some((def_tf, geom, colors)) = defs.get(&id) else {
+            // A dangling `#id` is a broken document. Failing loudly beats loading an empty
+            // design the operator might then send to the cutter as a blank job.
+            return Err(IoError::Invalid(format!(
+                "SVG: <use> refers to a missing definition '#{id}'"
+            )));
+        };
+        let delta = def_tf.inverse().map(|inv| site.mul(inv));
+        for (g, c) in geom.iter().zip(colors.iter()) {
+            let saved = out.current.clone();
+            out.current = c.clone();
+            match delta {
+                Some(d) => out.push(reapply(g.clone(), d))?,
+                None => out.push(g.clone())?,
+            }
+            out.current = saved;
+        }
+    }
+    Ok((out.g, out.colors))
+}
+
+/// Pick the colour an element declares for itself, if any.
+///
+/// A cutter follows the stroke, so `stroke` wins over `fill`: a shape drawn with a red outline
+/// on a blue fill is cut in red vinyl. `style="stroke:#f00;fill:#00f"` carries the same two
+/// properties inline, so it is consulted last. `none` means "draw nothing" and is not a colour.
+fn colour_of(a: &[(String, String)]) -> Option<String> {
+    fn usable(v: &str) -> Option<String> {
+        let v = v.trim();
+        if v.is_empty() || v.eq_ignore_ascii_case("none") || v.eq_ignore_ascii_case("transparent") {
+            None
+        } else {
+            Some(v.to_string())
+        }
+    }
+    if let Some(s) = attr(a, "stroke").and_then(usable) {
+        return Some(s);
+    }
+    if let Some(s) = attr(a, "fill").and_then(usable) {
+        return Some(s);
+    }
+    if let Some(s) = attr(a, "style") {
+        for part in s.split(';') {
+            let mut kv = part.splitn(2, ':');
+            let key = kv.next().unwrap_or("").trim();
+            let value = kv.next().unwrap_or("").trim();
+            if key.eq_ignore_ascii_case("stroke") || key.eq_ignore_ascii_case("fill") {
+                if let Some(v) = usable(value) {
+                    return Some(v);
+                }
+            }
+        }
+    }
+    None
+}
+
+/// Read the geometry of an SVG document (millimetres, y up).
+pub fn read_svg(text: &str) -> Result<Vec<Geom2>> {
+    read_svg_inner(text).map(|(geometry, _)| geometry)
+}
+
+/// Read an SVG document together with the colour in effect for each entity.
+///
+/// The colour vector is parallel to the geometry: `colors[i]` is the stroke/fill declared for
+/// `geometry[i]`, or `None` when the document leaves it unset. Callers that cut by colour group
+/// the entities by this value; callers that only want geometry use [`read_svg`].
+///
+/// Colour inherits down the element tree the way SVG specifies: an element's own `stroke`,
+/// `fill`, or inline `style` wins, otherwise it takes its parent's. `stroke` beats `fill`
+/// because that is the line a cutter follows. Definitions referenced by `<use>` keep the colour
+/// they were drawn with, so a red symbol stays red at every use site.
+pub fn read_svg_colored(text: &str) -> Result<(Vec<Geom2>, Vec<Option<String>>)> {
+    read_svg_inner(text)
 }
 
 #[cfg(test)]
@@ -534,9 +818,9 @@ mod tests {
     /// `hostile_files_never_panic` does for STEP (solidcraft#469).
     #[test]
     fn hostile_svg_never_panics() {
-        let good = r#"<svg xmlns="http://www.w3.org/2000/svg" width="100mm" height="50mm" viewBox="0 0 100 50">
+        let good = r###"<svg xmlns="http://www.w3.org/2000/svg" width="100mm" height="50mm" viewBox="0 0 100 50">
             <g transform="translate(10 5)"><rect x="1" y="2" width="3" height="4"/><path d="M0 0 L5 5 Z"/></g>
-        </svg>"#;
+        </svg>"###;
         let mut cases: Vec<String> = vec![
             String::new(),
             "<svg".into(),
@@ -567,12 +851,12 @@ mod tests {
 
     #[test]
     fn shapes_paths_and_units() {
-        let svg = r#"<svg xmlns="http://www.w3.org/2000/svg" width="100mm" height="50mm" viewBox="0 0 100 50">
+        let svg = r###"<svg xmlns="http://www.w3.org/2000/svg" width="100mm" height="50mm" viewBox="0 0 100 50">
             <rect x="10" y="10" width="20" height="10"/>
             <circle cx="50" cy="25" r="5"/>
             <g transform="translate(70 0)"><path d="M0 0 C 10 0 10 10 20 10 Q 25 20 30 10 A 5 5 0 0 1 40 10 Z"/></g>
             <ellipse cx="80" cy="40" rx="6" ry="3"/>
-        </svg>"#;
+        </svg>"###;
         let g = read_svg(svg).unwrap();
         // rect 4 lines, circle, cubic, quad, arc, closing line, ellipse
         assert_eq!(g.len(), 4 + 1 + 4 + 1, "{g:?}");
@@ -585,7 +869,7 @@ mod tests {
         assert!(read_svg("<svg><path d='M 1e400 0 L nan 3'/></svg>").is_ok());
         assert!(read_svg("<svg").is_err() || read_svg("<svg").is_ok());
         // Plain pixels.
-        let g = read_svg(r#"<svg><line x1="0" y1="0" x2="96" y2="0"/></svg>"#).unwrap();
+        let g = read_svg(r###"<svg><line x1="0" y1="0" x2="96" y2="0"/></svg>"###).unwrap();
         assert!(matches!(g[0], Geom2::Line(a, b) if (a.dist(b) - 25.4).abs() < 1e-9));
     }
 
@@ -593,14 +877,14 @@ mod tests {
     /// instead of handing the sketch an infinite curve (solidcraft#5020).
     #[test]
     fn geometry_scaled_to_infinity_is_refused() {
-        let doc = |body: &str| format!(r#"<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100" width="100mm" height="100mm">{body}</svg>"#);
+        let doc = |body: &str| format!(r###"<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100" width="100mm" height="100mm">{body}</svg>"###);
         for body in [
-            r#"<g transform="scale(1e308)"><circle r="5"/></g>"#,
-            r#"<g transform="scale(1e308)"><g transform="scale(1e308)"></g></g>"#,
-            r#"<g transform="scale(1e308)"><rect width="5" height="5"/></g>"#,
-            r#"<g transform="scale(1e308)"><path d="M0 0 C 1 1 2 2 5 5"/></g>"#,
-            r#"<g transform="matrix(1e308 0 0 1e308 1e308 1e308)"><line x1="1" y1="1" x2="5" y2="5"/></g>"#,
-            r#"<g transform="scale(1e308)"><text x="0" y="0" font-size="16">A</text></g>"#,
+            r###"<g transform="scale(1e308)"><circle r="5"/></g>"###,
+            r###"<g transform="scale(1e308)"><g transform="scale(1e308)"></g></g>"###,
+            r###"<g transform="scale(1e308)"><rect width="5" height="5"/></g>"###,
+            r###"<g transform="scale(1e308)"><path d="M0 0 C 1 1 2 2 5 5"/></g>"###,
+            r###"<g transform="matrix(1e308 0 0 1e308 1e308 1e308)"><line x1="1" y1="1" x2="5" y2="5"/></g>"###,
+            r###"<g transform="scale(1e308)"><text x="0" y="0" font-size="16">A</text></g>"###,
         ] {
             match read_svg(&doc(body)) {
                 Err(IoError::Invalid(m)) => assert!(m.contains("out of range"), "{body}: {m}"),
@@ -608,7 +892,256 @@ mod tests {
             }
         }
         // Large but finite drawings still read.
-        let g = read_svg(&doc(r#"<g transform="scale(1e6)"><circle r="5"/></g>"#)).unwrap();
+        let g = read_svg(&doc(r###"<g transform="scale(1e6)"><circle r="5"/></g>"###)).unwrap();
         assert!(matches!(g[0], Geom2::Circle(_, r) if (r - 5e6).abs() < 1e-3));
+    }
+
+    /// Line endpoints as sorted, orientation-normalised integer millimetre pairs. Integer
+    /// comparison keeps the assertions readable; every coordinate here is exact.
+    fn line_pairs(g: &[Geom2]) -> Vec<((i64, i64), (i64, i64))> {
+        let mut v: Vec<((i64, i64), (i64, i64))> = g
+            .iter()
+            .filter_map(|x| match x {
+                Geom2::Line(a, b) => {
+                    let (p, q) = if (a.x, a.y) <= (b.x, b.y) { (*a, *b) } else { (*b, *a) };
+                    Some(((p.x.round() as i64, p.y.round() as i64), (q.x.round() as i64, q.y.round() as i64)))
+                }
+                _ => None,
+            })
+            .collect();
+        v.sort();
+        v
+    }
+
+    fn doc_50(body: &str) -> String {
+        format!(r###"<svg xmlns="http://www.w3.org/2000/svg" width="100mm" height="50mm" viewBox="0 0 100 50">{body}</svg>"###)
+    }
+
+    /// A `<defs>` element holds geometry that renders only where a `<use>` points at it.
+    /// Emitting it where it is written cut a stray square at the definition's own coordinates
+    /// and dropped both intended copies (silent geometry corruption).
+    #[test]
+    fn defs_geometry_is_not_cut_where_it_is_written() {
+        let g = read_svg(&doc_50(r###"<defs><rect id="a" x="0" y="0" width="10" height="10"/></defs>"###)).unwrap();
+        assert!(g.is_empty(), "a definition must not be cut in place: {g:?}");
+    }
+
+    /// `<use>` replays the definition at the use site. With no offset the replay must land
+    /// exactly where the same shape written inline would.
+    #[test]
+    fn use_replays_definition_in_place() {
+        let g = read_svg(&doc_50(
+            r###"<defs><rect id="a" x="0" y="0" width="10" height="10"/></defs><use href="#a"/>"###,
+        ))
+        .unwrap();
+        // y is flipped: SVG y 0..10 becomes mm y 0..-10.
+        assert_eq!(
+            line_pairs(&g),
+            vec![((0, -10), (0, 0)), ((0, -10), (10, -10)), ((0, 0), (10, 0)), ((10, -10), (10, 0))],
+            "{g:?}"
+        );
+    }
+
+    /// The use's `x`/`y` shift the instance. In a y-down document an SVG y offset moves the
+    /// shape down, which is -y in millimetres after the import flip.
+    #[test]
+    fn use_x_y_offsets_place_the_instance() {
+        let g = read_svg(&doc_50(
+            r###"<defs><rect id="a" x="0" y="0" width="10" height="10"/></defs><use href="#a" x="5" y="5"/>"###,
+        ))
+        .unwrap();
+        assert_eq!(
+            line_pairs(&g),
+            vec![((5, -15), (5, -5)), ((5, -15), (15, -15)), ((5, -5), (15, -5)), ((15, -15), (15, -5))],
+            "{g:?}"
+        );
+    }
+
+    /// Two uses of one definition produce two instances, and the y offset separates them.
+    #[test]
+    fn two_uses_of_one_definition_produce_two_instances() {
+        let g = read_svg(&doc_50(
+            r###"<defs><rect id="a" x="0" y="0" width="10" height="10"/></defs><use href="#a"/><use href="#a" y="20"/>"###,
+        ))
+        .unwrap();
+        assert_eq!(g.len(), 8, "expected two four-line rectangles: {g:?}");
+        let ys: Vec<f64> = g
+            .iter()
+            .filter_map(|x| match x {
+                Geom2::Line(a, _) => Some(a.y),
+                _ => None,
+            })
+            .collect();
+        let (lo, hi) = (
+            ys.iter().cloned().fold(f64::INFINITY, f64::min),
+            ys.iter().cloned().fold(f64::NEG_INFINITY, f64::max),
+        );
+        // 0..-10 and -20..-30 -> a 30 mm span, not overlapping.
+        assert!((hi - lo - 30.0).abs() < 1e-9, "instances not offset: y {lo}..{hi}");
+    }
+
+    /// A `<g id>` inside `<defs>` is captured as a whole, not just its children.
+    #[test]
+    fn grouped_definition_is_captured() {
+        let g = read_svg(&doc_50(
+            r###"<defs><g id="grp"><rect x="0" y="0" width="10" height="10"/></g></defs><use href="#grp"/>"###,
+        ))
+        .unwrap();
+        assert_eq!(g.len(), 4, "grouped definition not replayed: {g:?}");
+    }
+
+    /// A `<symbol id>` is both a container and a usable definition.
+    #[test]
+    fn symbol_definition_is_captured() {
+        let g = read_svg(&doc_50(
+            r###"<defs><symbol id="sym"><rect x="0" y="0" width="10" height="10"/></symbol></defs><use href="#sym"/>"###,
+        ))
+        .unwrap();
+        assert_eq!(g.len(), 4, "symbol definition not replayed: {g:?}");
+    }
+
+    /// A use may appear before its definition; it resolves after the document is read.
+    #[test]
+    fn forward_reference_resolves() {
+        let g = read_svg(&doc_50(
+            r###"<use href="#late"/><defs><rect id="late" x="0" y="0" width="10" height="10"/></defs>"###,
+        ))
+        .unwrap();
+        assert_eq!(g.len(), 4, "forward-referenced definition not replayed: {g:?}");
+    }
+
+    /// A self-closing `<defs/>` must not leave the definition scope open, or the next shape
+    /// would be swallowed as a definition and never cut.
+    #[test]
+    fn self_closing_defs_does_not_swallow_following_shapes() {
+        let g = read_svg(&doc_50(r###"<defs/><rect x="0" y="0" width="10" height="10"/>"###)).unwrap();
+        assert_eq!(g.len(), 4, "shape after <defs/> was swallowed: {g:?}");
+    }
+
+    /// A dangling reference is a broken document. Loading it as an empty design would let the
+    /// operator send a blank job to the cutter without noticing.
+    #[test]
+    fn dangling_use_is_an_error() {
+        match read_svg(&doc_50(r###"<use href="#missing"/>"###)) {
+            Err(IoError::Invalid(m)) => assert!(m.contains("missing definition"), "{m}"),
+            other => panic!("expected a missing-definition error, got {other:?}"),
+        }
+    }
+
+    /// `xlink:href` is the pre-SVG2 spelling and still appears in Inkscape output.
+    #[test]
+    fn xlink_href_is_accepted() {
+        let g = read_svg(&doc_50(
+            r###"<defs><rect id="a" x="0" y="0" width="10" height="10"/></defs><use xlink:href="#a"/>"###,
+        ))
+        .unwrap();
+        assert_eq!(g.len(), 4, "xlink:href use not replayed: {g:?}");
+    }
+
+    /// Colour is reported alongside geometry so a caller can split a multi-colour design into
+    /// per-colour cutting jobs. The two vectors stay parallel: `colors[i]` belongs to
+    /// `geometry[i]`.
+    #[test]
+    fn colour_is_recorded_per_entity() {
+        let doc = doc_50(
+            r###"<g stroke="#ff0000"><rect x="0" y="0" width="10" height="10"/></g>
+                 <circle cx="30" cy="10" r="4" fill="#0000ff"/>"###,
+        );
+        let (geometry, colors) = read_svg_colored(&doc).unwrap();
+        assert_eq!(
+            geometry.len(),
+            colors.len(),
+            "geometry and colour vectors must stay parallel"
+        );
+        // The rect's four lines inherit the group's red stroke.
+        for (g, c) in geometry.iter().zip(colors.iter()).take(4) {
+            assert!(matches!(g, Geom2::Line(..)), "{g:?}");
+            assert_eq!(c.as_deref(), Some("#ff0000"), "rect line lost its inherited stroke");
+        }
+        // The circle carries its own fill, and inherits nothing from the group.
+        let i = geometry
+            .iter()
+            .position(|g| matches!(g, Geom2::Circle(..)))
+            .expect("circle missing");
+        assert_eq!(colors[i].as_deref(), Some("#0000ff"), "circle lost its fill colour");
+    }
+
+    /// A cutter follows the stroke, so a shape with both a stroke and a fill is cut in the
+    /// stroke's colour. `fill` only supplies a colour when no stroke is declared.
+    #[test]
+    fn stroke_wins_over_fill() {
+        let doc = doc_50(r###"<path d="M0 0 L10 0 L10 10" stroke="red" fill="blue"/>"###);
+        let (geometry, colors) = read_svg_colored(&doc).unwrap();
+        assert!(!geometry.is_empty(), "path produced no geometry");
+        for c in &colors {
+            assert_eq!(c.as_deref(), Some("red"), "stroke should win over fill");
+        }
+    }
+
+    /// Properties written into an inline `style` attribute count the same as presentation
+    /// attributes. Illustrator and Inkscape both emit style strings.
+    #[test]
+    fn inline_style_is_read() {
+        let doc = doc_50(
+            r###"<rect x="0" y="0" width="10" height="10" style="fill:none;stroke:#00ff00"/>"###,
+        );
+        let (geometry, colors) = read_svg_colored(&doc).unwrap();
+        assert_eq!(geometry.len(), 4);
+        for c in &colors {
+            assert_eq!(c.as_deref(), Some("#00ff00"), "inline style stroke not read");
+        }
+    }
+
+    /// `stroke="none"` means "draw no line"; reporting it as a colour would put an empty vinyl
+    /// run in front of the cutter.
+    #[test]
+    fn none_is_not_a_colour() {
+        let doc = doc_50(r###"<rect x="0" y="0" width="10" height="10" stroke="none"/>"###);
+        let (_, colors) = read_svg_colored(&doc).unwrap();
+        assert!(
+            colors.iter().all(|c| c.is_none()),
+            "none leaked as a colour: {colors:?}"
+        );
+    }
+
+    /// A definition drawn in one colour stays that colour wherever a `<use>` replays it. Losing
+    /// this would attribute a red symbol to whatever colour the use site inherits.
+    #[test]
+    fn use_keeps_definition_colour() {
+        let doc = doc_50(
+            r###"<defs><rect id="a" x="0" y="0" width="10" height="10" stroke="#123456"/></defs><use href="#a"/>"###,
+        );
+        let (geometry, colors) = read_svg_colored(&doc).unwrap();
+        assert_eq!(geometry.len(), 4, "definition not replayed");
+        for c in &colors {
+            assert_eq!(c.as_deref(), Some("#123456"), "definition colour lost at use site");
+        }
+    }
+
+    /// A group's colour must reach geometry nested two levels down, and must not leak to a
+    /// sibling group that declares its own.
+    #[test]
+    fn colour_inherits_through_nested_groups() {
+        let doc = doc_50(
+            r###"<g stroke="#111111"><g><rect x="0" y="0" width="4" height="4"/></g></g>
+                 <g stroke="#222222"><rect x="10" y="0" width="4" height="4"/></g>"###,
+        );
+        let (geometry, colors) = read_svg_colored(&doc).unwrap();
+        assert_eq!(geometry.len(), 8, "two rects expected");
+        for (i, c) in colors.iter().enumerate() {
+            let expected = if i < 4 { "#111111" } else { "#222222" };
+            assert_eq!(c.as_deref(), Some(expected), "entity {i} has the wrong colour");
+        }
+    }
+
+    /// `read_svg` must keep returning geometry alone so existing callers are unaffected by the
+    /// added colour tracking.
+    #[test]
+    fn geometry_only_reader_is_unchanged() {
+        let doc = doc_50(r###"<rect x="0" y="0" width="10" height="10" stroke="#ff0000"/>"###);
+        let plain = read_svg(&doc).unwrap();
+        let (colored, colors) = read_svg_colored(&doc).unwrap();
+        assert_eq!(plain.len(), colored.len());
+        assert!(colors.iter().any(|c| c.is_some()), "colour not recorded");
     }
 }
