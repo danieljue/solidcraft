@@ -13,6 +13,11 @@ use serde::{Deserialize, Serialize};
 pub use solidcraft_geom::Seg2 as Segment;
 pub use solidcraft_geom::Vec2 as Point;
 
+/// Chord tolerance used when a curve has to become straight edges for an algorithm that only
+/// reasons about polygons — offsetting, boolean operations, tiling. Fine enough that the
+/// approximation is invisible on a cut, coarse enough to keep the vertex count sane.
+pub const DEFAULT_FLATTEN_TOL_MM: f64 = 0.05;
+
 /// A contour: its segments in order, and whether the last one closes back onto the first.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct Toolpath {
@@ -100,6 +105,29 @@ impl Toolpath {
     /// Total path length in millimetres, exact for lines and arcs.
     pub fn length_mm(&self) -> f64 {
         self.segments.iter().map(|s| s.length()).sum()
+    }
+
+    /// This contour with every curve replaced by chords.
+    ///
+    /// The polygon algorithms in this crate — offsetting, boolean operations, tiling — reason
+    /// about vertices and straight edges. Handing them an arc would silently take its chord,
+    /// which is why they call this first. Lines are passed through untouched, so a design that
+    /// is already polygonal costs one vector and no accuracy.
+    pub fn flattened(&self, tol: f64) -> Toolpath {
+        let mut segments = Vec::with_capacity(self.segments.len());
+        for seg in &self.segments {
+            if matches!(seg, Segment::Line { .. }) {
+                segments.push(*seg);
+                continue;
+            }
+            let pts = seg.polyline(tol);
+            for w in pts.windows(2) {
+                if w[0] != w[1] {
+                    segments.push(Segment::Line { a: w[0], b: w[1] });
+                }
+            }
+        }
+        Toolpath { segments, closed: self.closed }
     }
 
     /// True when every segment is straight, i.e. nothing is lost by emitting moves only.

@@ -68,7 +68,10 @@ pub fn offset_closed(toolpath: &Toolpath, distance: f64) -> Vec<Toolpath> {
         return Vec::new();
     }
 
-    let mut pts = contour_points(toolpath);
+    // Offset reasons about a polygon, so a curve has to become chords first; taking a
+    // segment's start point alone would drop the whole curve.
+    let flat = toolpath.flattened(crate::geom::DEFAULT_FLATTEN_TOL_MM);
+    let mut pts = contour_points(&flat);
     dedupe(&mut pts);
     if pts.len() < 3 {
         return Vec::new();

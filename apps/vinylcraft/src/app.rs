@@ -422,7 +422,6 @@ impl VinylApp {
     }
 
     pub(crate) fn load_design(&mut self, path: &Path) {
-        self.push_undo();
         let ext = path.extension().and_then(|e| e.to_str()).unwrap_or("").to_ascii_lowercase();
         // SVG carries stroke/fill colour; DXF does not. Reading the coloured form for SVG is
         // what lets a multi-colour design split into one cutting job per colour later.
@@ -457,6 +456,9 @@ impl VinylApp {
                         }
                     }
                 }
+                // The file parsed: only now is the previous design about to be replaced,
+                // so only now is there anything to take back.
+                self.push_undo();
                 self.raw_polylines = polys;
                 // The colour vector stays parallel to the geometry so `vinyl_job_add` can split
                 // a multi-colour design into one job per colour.
@@ -572,7 +574,6 @@ impl VinylApp {
         height_mm: f64,
         angle_rad: f64,
     ) -> Result<(usize, usize), String> {
-        self.push_undo();
         if text.trim().is_empty() {
             return Err("no text to add".into());
         }
@@ -598,6 +599,8 @@ impl VinylApp {
         if polys.is_empty() {
             return Err("text produced no cuttable contours".into());
         }
+        // Everything that can fail has passed and the design is about to change.
+        self.push_undo();
         let was_empty = self.raw_polylines.is_empty();
         let n = polys.len();
         self.raw_polylines.extend(polys);
@@ -646,10 +649,10 @@ impl VinylApp {
     /// design scaled up by 2 would have its outline doubled at emit time — the same as scaling
     /// any other geometry in the design.
     pub(crate) fn offset_design(&mut self, distance: f64, keep_original: bool) -> (usize, usize, usize) {
-        self.push_undo();
         if self.raw_polylines.is_empty() {
             return (0, 0, 0);
         }
+        self.push_undo();
         let mut offset_count = 0usize;
         let mut skipped_open = 0usize;
         let mut dropped = 0usize;
@@ -750,10 +753,10 @@ impl VinylApp {
         fill: FillMode,
         clip: Option<(f64, f64, f64, f64)>,
     ) -> (usize, usize, usize) {
-        self.push_undo();
         if self.raw_polylines.is_empty() {
             return (0, 0, 0);
         }
+        self.push_undo();
 
         // The clip rectangle is the same second operand for every colour group. Built once because
         // a rectangle's construction is trivial but rebuilding it per group would invite the

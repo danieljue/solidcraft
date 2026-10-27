@@ -93,9 +93,15 @@ fn check_limits(profile: &MachineProfile, toolpaths: &[Toolpath]) -> Result<(), 
     };
     for tp in toolpaths {
         for seg in &tp.segments {
-            // Sample the segment rather than only its end: an arc can bulge past its
-            // endpoints, and the carriage would hit the end stop in the middle of it.
-            for p in seg.polyline(0.5) {
+            // An arc or a Bézier can bulge past its endpoints, and the carriage would hit
+            // the end stop in the middle of it. A straight segment cannot, and sampling one
+            // would allocate a vector for every segment of every job.
+            let samples = if matches!(seg, Segment::Line { .. }) {
+                vec![seg.end()]
+            } else {
+                seg.polyline(0.5)
+            };
+            for p in samples {
                 if let Some(mx) = max_x {
                     if p.x > mx + 1e-9 {
                         return Err(PostError::OutOfBounds(format!(
@@ -166,12 +172,16 @@ pub(crate) fn emit_generic(
         // back to the start, so the blade stays down through the overlap — lifting here
         // would puncture the vinyl at the one point the overcut is meant to hide.
         if tp.closed && profile.overcut_mm > 0.0 {
-            let end = first.end();
-            let (dx, dy) = (end.x - start.x, end.y - start.y);
-            let len = (dx * dx + dy * dy).sqrt();
-            if len > 1e-9 {
-                let k = profile.overcut_mm / len;
-                let over = Point::new(start.x + dx * k, start.y + dy * k);
+            // Continue past the seam along the contour's direction of travel where it
+            // starts. For a straight segment that is the segment's own direction; for an
+            // arc it is the tangent. Using the chord to the arc's end instead would cut
+            // across the shape — on a circle, straight towards the middle.
+            let dir = first.start_tangent();
+            if dir.len() > 1e-9 {
+                let over = Point::new(
+                    start.x + dir.x * profile.overcut_mm,
+                    start.y + dir.y * profile.overcut_mm,
+                );
                 match pen {
                     Pen::Down => {
                         out.push_str(&cmds.line_to(over));
@@ -253,6 +263,32 @@ mod tolerance_tests {
             "coarse {coarse_draws} chords should be fewer than fine {fine_draws}"
         );
         assert!(coarse_draws > 8, "even a coarse circle needs real chords, got {coarse_draws}");
+    }
+
+    #[test]
+    fn the_overcut_follows_the_tangent_when_a_contour_starts_with_an_arc() {
+        // A circle about (20, 20) of radius 20 starts at (40, 20) and, going counter-
+        // clockwise, leaves straight up. A 1 mm overcut must therefore land at (40, 21),
+        // still on the circle. Taking the chord to the first arc's end would drive the
+        // blade towards (20, 20) — into the middle of the shape.
+        let mut p = dmpl_with_tolerance(0.05);
+        p.units_per_mm = 1.0;
+        p.overcut_mm = 1.0;
+        let out = emit(&p, &[Toolpath::circle(Point::new(20.0, 20.0), 20.0)]).unwrap();
+
+        let draws: Vec<&str> = out.split('D').skip(1).collect();
+        let last_draw = *draws.last().expect("a draw command");
+        let coords = last_draw.split(';').next().unwrap();
+        let (x, y) = coords.split_once(',').expect("x,y");
+        let x: f64 = x.parse().unwrap();
+        let y: f64 = y.parse().unwrap();
+
+        assert!((x - 40.0).abs() < 1e-6, "overcut x was {x}, expected 40 (the start)");
+        assert!((y - 21.0).abs() < 1e-6, "overcut y was {y}, expected 21 (1 mm up the tangent)");
+        let r = ((x - 20.0).powi(2) + (y - 20.0).powi(2)).sqrt();
+        // A straight 1 mm tangent lands at sqrt(20^2 + 1^2) = 20.025 from the centre, just
+        // outside the circle. The chord this replaced would have put it at 19 — inside.
+        assert!(r > 20.0 && r < 20.05, "overcut sits {r} mm from the centre; a chord would land near 19");
     }
 
     #[test]

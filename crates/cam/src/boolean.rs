@@ -186,11 +186,20 @@ pub fn boolean_paths(
     op: BooleanOp,
     fill: FillMode,
 ) -> Vec<Toolpath> {
-    let subj: Vec<Vec<[f64; 2]>> = subject.iter().filter_map(contour_points).collect();
+    // `contour_points` reads segment start points, so curves must be chords before it runs.
+    let subject_flat: Vec<Toolpath> = subject
+        .iter()
+        .map(|t| t.flattened(crate::geom::DEFAULT_FLATTEN_TOL_MM))
+        .collect();
+    let clip_flat: Vec<Toolpath> = clip
+        .iter()
+        .map(|t| t.flattened(crate::geom::DEFAULT_FLATTEN_TOL_MM))
+        .collect();
+    let subj: Vec<Vec<[f64; 2]>> = subject_flat.iter().filter_map(contour_points).collect();
     if subj.is_empty() {
         return Vec::new();
     }
-    let clip_contours: Vec<Vec<[f64; 2]>> = clip.iter().filter_map(contour_points).collect();
+    let clip_contours: Vec<Vec<[f64; 2]>> = clip_flat.iter().filter_map(contour_points).collect();
     let shapes = subj.overlay(&clip_contours, op.rule(), fill.rule());
     to_toolpaths(shapes)
 }

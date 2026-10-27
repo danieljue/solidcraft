@@ -143,6 +143,11 @@ pub(crate) fn state_json(app: &VinylApp) -> Value {
     // already at the compiler's expansion recursion limit. The queue depth is what tells a
     // caller whether vinyl_nest has anything to pack.
     state["jobs"] = json!(app.jobs.len());
+    // How many edits can still be taken back or reapplied: the GUI shows these as the
+    // enablement of Undo/Redo, and a caller needs them to know whether an edit is
+    // recoverable. Set here rather than inline, for the same recursion-limit reason.
+    state["undo_depth"] = json!(app.undo_stack.len());
+    state["redo_depth"] = json!(app.redo_stack.len());
     state
 }
 
@@ -198,12 +203,14 @@ pub(crate) fn call_vinyl_tool(app: &mut VinylApp, name: &str, args: &Value) -> R
             }
             let svg = app.export_svg();
             fs::write(path, &svg).map_err(|e| format!("{path}: {e}"))?;
+            // The file holds the transformed design, so report that box, not the raw one.
+            let (lo, hi) = crate::geometry::bbox_of(&app.transformed());
             Ok(json!({
                 "path": path,
                 "format": "svg",
                 "bytes": svg.len(),
                 "paths": app.raw_polylines.len(),
-                "design_bbox": [app.raw_bbox.0.x, app.raw_bbox.0.y, app.raw_bbox.1.x, app.raw_bbox.1.y],
+                "bbox": [lo.x, lo.y, hi.x, hi.y],
             }))
         }
         "vinyl_load" => {

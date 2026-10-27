@@ -5,10 +5,10 @@
 //! between tiles. An overlap keeps adjacent tiles joined so a cut spans the seam instead
 //! of leaving a gap.
 //!
-//! The clipping is plain Liang-Barsky against an axis-aligned rectangle. A `Toolpath` is a
-//! run of straight segments, so clipping each segment and rebuilding contiguous runs keeps
-//! the geometry exact: no curve flattening, no tolerance, no new vertices except where a
-//! segment crosses a tile edge.
+//! The clipping is plain Liang-Barsky against an axis-aligned rectangle, rebuilding
+//! contiguous runs so a tile never drags a straight cut across a gap. Clipping needs straight
+//! edges, so curves are flattened to chords at [`crate::geom::DEFAULT_FLATTEN_TOL_MM`] first:
+//! a clipped arc is an approximation, but an unclipped one would leave the tile entirely.
 
 use crate::geom::{Point, Segment, Toolpath};
 
@@ -100,10 +100,11 @@ pub fn tile(toolpaths: &[Toolpath], bbox: (Point, Point), opts: &TileOptions) ->
 /// where the original path left the rectangle; it does not jump across the gap, because a
 /// jump would make the blade lift and drag a straight cut across the tile.
 fn clip_toolpath(tp: &Toolpath, rect: (f64, f64, f64, f64)) -> Vec<Toolpath> {
+    let flat = tp.flattened(crate::geom::DEFAULT_FLATTEN_TOL_MM);
     let mut out = Vec::new();
     let mut run: Vec<Segment> = Vec::new();
     let mut split = false;
-    for seg in &tp.segments {
+    for seg in &flat.segments {
         match clip_segment(seg, rect) {
             Some(s) => run.push(s),
             None => {

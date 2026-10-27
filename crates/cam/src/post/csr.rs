@@ -77,12 +77,14 @@ pub fn emit_with_pen(profile: &MachineProfile, toolpaths: &[Toolpath], pen: Pen)
         // instead of leaving a vinyl hinge. The final segment already drew back to the
         // start, so the blade stays down through the overlap.
         if tp.closed && profile.overcut_mm > 0.0 {
-            let end = first.end();
-            let (sx, sy) = (end.x - start.x, end.y - start.y);
-            let len = (sx * sx + sy * sy).sqrt();
-            if len > 1e-9 {
-                let k = profile.overcut_mm / len;
-                let over = Point::new(start.x + sx * k, start.y + sy * k);
+            // The tangent at the contour's start, not the chord to the first segment's
+            // end: on an arc those differ, and the chord would cut across the shape.
+            let dir = first.start_tangent();
+            if dir.len() > 1e-9 {
+                let over = Point::new(
+                    start.x + dir.x * profile.overcut_mm,
+                    start.y + dir.y * profile.overcut_mm,
+                );
                 let (dx, dy) = ((over.x - cursor.x) * u, (over.y - cursor.y) * u);
                 match pen {
                     Pen::Down => {
