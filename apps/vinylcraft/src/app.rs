@@ -5,26 +5,26 @@
 //! of the state or a getter for each field.
 
 use eframe::egui;
-use solidcraft_cam::boolean::{boolean_paths, BooleanOp, FillMode};
+use solidcraft_cam::boolean::{BooleanOp, FillMode, boolean_paths};
 use solidcraft_cam::filters;
 use solidcraft_cam::geom::{Point, Toolpath};
 use solidcraft_cam::post;
 use solidcraft_cam::profile::{FlowControl as CamFlow, MachineProfile, SerialSettings};
 use solidcraft_geom::Vec2;
-use solidcraft_io::{read_dxf, read_svg_colored, Geom2};
+use solidcraft_io::{Geom2, read_dxf, read_svg_colored};
 use solidcraft_sketch::text_geometry;
 use std::collections::BTreeMap;
 use std::fs;
 use std::path::Path;
 use std::sync::Arc;
-use std::sync::mpsc::{self, Receiver};
 use std::sync::atomic::Ordering;
+use std::sync::mpsc::{self, Receiver};
 
-use crate::geometry::*;
-use crate::serial::*;
-use crate::jobs::*;
 use crate::control::*;
-use crate::dispatch::{state_json, call_vinyl_tool};
+use crate::dispatch::{call_vinyl_tool, state_json};
+use crate::geometry::*;
+use crate::jobs::*;
+use crate::serial::*;
 
 /// The part of the model a destructive operation can replace.
 ///
@@ -128,16 +128,11 @@ impl Default for VinylApp {
         let cutter = ports.iter().find(|p| p.looks_like_cutter());
         let only_port = (ports.len() == 1).then(|| &ports[0]);
         let chosen = cutter.or(only_port);
-        let port_name = chosen
-            .map(|p| p.name.clone())
-            .unwrap_or_else(|| CUTTER_FALLBACK_PORT.into());
+        let port_name = chosen.map(|p| p.name.clone()).unwrap_or_else(|| CUTTER_FALLBACK_PORT.into());
         // Say which case we are in up front. A silent "Ready" on a port that cannot cut is
         // how a user spends an afternoon sending jobs to a microcontroller.
         let status = match (&cutter, &only_port, ports.len()) {
-            (Some(p), _, _) => format!(
-                "Ready. Cutter bridge on {} ({}) selected; the blade will drop when you send a design.",
-                p.name, p.label
-            ),
+            (Some(p), _, _) => format!("Ready. Cutter bridge on {} ({}) selected; the blade will drop when you send a design.", p.name, p.label),
             (None, Some(p), _) => format!(
                 "Ready. Only one serial port present, so using {} ({}) — verify it is the \
                  cutter before sending a real job.",
@@ -163,15 +158,10 @@ impl Default for VinylApp {
         // corrupt build should still start with a usable profile rather than panic on
         // launch, so a failure degrades to the library default.
         let mut profile: MachineProfile =
-            serde_json::from_str(solidcraft_cam::USCUTTER_SC2_PROFILE_JSON)
-                .unwrap_or_else(|_| MachineProfile::default());
+            serde_json::from_str(solidcraft_cam::USCUTTER_SC2_PROFILE_JSON).unwrap_or_else(|_| MachineProfile::default());
         // The port is the one setting the profile file cannot know, because it is
         // discovered per machine and Windows reassigns COM numbers on replug.
-        profile.serial = Some(SerialSettings {
-            port: port_name.clone(),
-            baud: 57600,
-            flow: CamFlow::RtsCts,
-        });
+        profile.serial = Some(SerialSettings { port: port_name.clone(), baud: 57600, flow: CamFlow::RtsCts });
         Self {
             profile,
             profile_path: String::new(),
@@ -246,10 +236,7 @@ impl VinylApp {
         } else if cutters.len() == 1 && self.port_name != cutters[0].name {
             // Follow the hardware when there is exactly one cutter and it moved to a new name.
             let name = cutters[0].name.clone();
-            self.log(format!(
-                "The only cutter-like device is on {name}; selecting it instead of {}",
-                self.port_name
-            ));
+            self.log(format!("The only cutter-like device is on {name}; selecting it instead of {}", self.port_name));
             self.port_name = name;
         }
     }
@@ -286,9 +273,8 @@ impl VinylApp {
     }
 
     pub(crate) fn load_profile(&mut self, path: &Path) {
-        match fs::read_to_string(path).map_err(|e| e.to_string()).and_then(|s| {
-            serde_json::from_str::<MachineProfile>(&s).map_err(|e| e.to_string())
-        }) {
+        match fs::read_to_string(path).map_err(|e| e.to_string()).and_then(|s| serde_json::from_str::<MachineProfile>(&s).map_err(|e| e.to_string()))
+        {
             Ok(p) => {
                 // A saved profile's port goes stale as soon as Windows renumbers the device,
                 // and the shipped SC2 profile names COM3. Follow the hardware when a cutter
@@ -299,10 +285,7 @@ impl VinylApp {
                 if let Some(s) = &p.serial {
                     match &detected {
                         Some(c) if c.name != s.port => {
-                            note = format!(
-                                "profile port {} is stale; using the detected cutter bridge {} ({})",
-                                s.port, c.name, c.label
-                            );
+                            note = format!("profile port {} is stale; using the detected cutter bridge {} ({})", s.port, c.name, c.label);
                             self.port_name = c.name.clone();
                         }
                         _ => self.port_name = s.port.clone(),
@@ -350,10 +333,7 @@ impl VinylApp {
             if poly.len() < 2 {
                 continue;
             }
-            let color = colors
-                .get(i)
-                .and_then(|c| c.as_deref())
-                .unwrap_or("#000000");
+            let color = colors.get(i).and_then(|c| c.as_deref()).unwrap_or("#000000");
             out.push_str(&format!("    <polyline stroke=\"{color}\" points=\""));
             for (k, p) in poly.iter().enumerate() {
                 if k > 0 {
@@ -371,11 +351,7 @@ impl VinylApp {
     const UNDO_DEPTH: usize = 32;
 
     fn snapshot(&self) -> DesignSnapshot {
-        DesignSnapshot {
-            polylines: self.raw_polylines.clone(),
-            colors: self.raw_colors.clone(),
-            bbox: self.raw_bbox,
-        }
+        DesignSnapshot { polylines: self.raw_polylines.clone(), colors: self.raw_colors.clone(), bbox: self.raw_bbox }
     }
 
     fn restore(&mut self, s: DesignSnapshot) {
@@ -425,21 +401,16 @@ impl VinylApp {
         let ext = path.extension().and_then(|e| e.to_str()).unwrap_or("").to_ascii_lowercase();
         // SVG carries stroke/fill colour; DXF does not. Reading the coloured form for SVG is
         // what lets a multi-colour design split into one cutting job per colour later.
-        let result = fs::read_to_string(path)
-            .map_err(|e| e.to_string())
-            .and_then(|text| match ext.as_str() {
-                "svg" => read_svg_colored(&text)
-                    .map_err(|e| e.to_string()),
-                "dxf" => read_dxf(&text)
-                    .map_err(|e| e.to_string())
-                    .map(|shapes| {
-                        // DXF carries no stroke/fill attribute we read, so every entity is
-                        // unlabelled. The parallel colour vector must still match in length.
-                        let n = shapes.len();
-                        (shapes, vec![None; n])
-                    }),
-                _ => Err(format!("Unsupported design type .{ext} (use SVG or DXF)")),
-            });
+        let result = fs::read_to_string(path).map_err(|e| e.to_string()).and_then(|text| match ext.as_str() {
+            "svg" => read_svg_colored(&text).map_err(|e| e.to_string()),
+            "dxf" => read_dxf(&text).map_err(|e| e.to_string()).map(|shapes| {
+                // DXF carries no stroke/fill attribute we read, so every entity is
+                // unlabelled. The parallel colour vector must still match in length.
+                let n = shapes.len();
+                (shapes, vec![None; n])
+            }),
+            _ => Err(format!("Unsupported design type .{ext} (use SVG or DXF)")),
+        });
         match result {
             Ok((shapes, colors)) => {
                 let (mut polys, poly_colors) = flatten_all_colored(&shapes, &colors);
@@ -533,9 +504,7 @@ impl VinylApp {
         if self.raw_polylines.is_empty() {
             return Vec::new();
         }
-        let mut out = Vec::with_capacity(
-            self.raw_polylines.len() * self.copies_x.max(1) as usize * self.copies_y.max(1) as usize,
-        );
+        let mut out = Vec::with_capacity(self.raw_polylines.len() * self.copies_x.max(1) as usize * self.copies_y.max(1) as usize);
         for _ix in 0..self.copies_x.max(1) {
             for _iy in 0..self.copies_y.max(1) {
                 for i in 0..self.raw_polylines.len() {
@@ -567,13 +536,7 @@ impl VinylApp {
     /// run of segments that get chained into one contour, so `segments` is normally much larger
     /// than `contours`. A space produces segments but no contours, so the pair distinguishes
     /// "typed nothing cuttable" from "typed nothing at all".
-    pub(crate) fn add_text(
-        &mut self,
-        text: &str,
-        at: Vec2,
-        height_mm: f64,
-        angle_rad: f64,
-    ) -> Result<(usize, usize), String> {
+    pub(crate) fn add_text(&mut self, text: &str, at: Vec2, height_mm: f64, angle_rad: f64) -> Result<(usize, usize), String> {
         if text.trim().is_empty() {
             return Err("no text to add".into());
         }
@@ -583,8 +546,7 @@ impl VinylApp {
         if !(angle_rad.is_finite() && at.is_finite()) {
             return Err("the text's place and angle must be finite".into());
         }
-        let outlines = text_geometry(text, at, height_mm, angle_rad)
-            .map_err(|e| format!("could not outline text: {e}"))?;
+        let outlines = text_geometry(text, at, height_mm, angle_rad).map_err(|e| format!("could not outline text: {e}"))?;
         let segments = outlines.len();
         // Chain the segments into closed contours. `text_geometry` hands back one `LinkGeom` per
         // outline segment — a glyph's outline is a run of lines and curves — so flattening each
@@ -621,10 +583,7 @@ impl VinylApp {
             self.step_y = 0.0;
         }
         self.needs_fit = true;
-        self.log(format!(
-            "Added text {text:?}: {n} contours from {segments} outline segments at {:.1},{:.1} mm",
-            at.x, at.y
-        ));
+        self.log(format!("Added text {text:?}: {n} contours from {segments} outline segments at {:.1},{:.1} mm", at.x, at.y));
         Ok((n, segments))
     }
 
@@ -747,12 +706,7 @@ impl VinylApp {
     /// Returns `(contours_out, passed_through_open, skipped_degenerate)`. `contours_out` counts
     /// only the contours the boolean produced; the passed-through open paths are extra geometry in
     /// the design and are reported separately so the count stays honest.
-    pub(crate) fn boolean_design(
-        &mut self,
-        op: BooleanOp,
-        fill: FillMode,
-        clip: Option<(f64, f64, f64, f64)>,
-    ) -> (usize, usize, usize) {
+    pub(crate) fn boolean_design(&mut self, op: BooleanOp, fill: FillMode, clip: Option<(f64, f64, f64, f64)>) -> (usize, usize, usize) {
         if self.raw_polylines.is_empty() {
             return (0, 0, 0);
         }
@@ -761,9 +715,7 @@ impl VinylApp {
         // The clip rectangle is the same second operand for every colour group. Built once because
         // a rectangle's construction is trivial but rebuilding it per group would invite the
         // groups to drift apart.
-        let clip_paths: Vec<Toolpath> = clip
-            .map(|(x, y, w, h)| vec![Toolpath::rectangle(x, y, w, h)])
-            .unwrap_or_default();
+        let clip_paths: Vec<Toolpath> = clip.map(|(x, y, w, h)| vec![Toolpath::rectangle(x, y, w, h)]).unwrap_or_default();
 
         // Group polyline indices by colour. `raw_colors` may be shorter than `raw_polylines` — the
         // invariant elsewhere is to extend with `None` — so read through `get` and flatten rather
@@ -794,10 +746,7 @@ impl VinylApp {
                     new_colors.push(color.clone());
                     continue;
                 }
-                match polylines_to_toolpaths(std::slice::from_ref(poly))
-                    .into_iter()
-                    .next()
-                {
+                match polylines_to_toolpaths(std::slice::from_ref(poly)).into_iter().next() {
                     Some(tp) => closed.push(tp),
                     None => skipped += 1,
                 }
@@ -821,9 +770,7 @@ impl VinylApp {
         self.raw_colors = new_colors;
         self.raw_bbox = bbox_of(&self.raw_polylines);
         self.needs_fit = true;
-        let mut note = format!(
-            "Boolean {op:?}: {out_count} contour(s) from {in_count} input path(s)"
-        );
+        let mut note = format!("Boolean {op:?}: {out_count} contour(s) from {in_count} input path(s)");
         if clip.is_some() {
             note.push_str(", clip rectangle applied");
         }
@@ -880,9 +827,7 @@ impl VinylApp {
             let reach = match cfg.style {
                 solidcraft_cam::marks::MarkStyle::CornerL { size_mm } => size_mm,
                 solidcraft_cam::marks::MarkStyle::Cross { size_mm } => size_mm * 0.5,
-                solidcraft_cam::marks::MarkStyle::CircleCross { diameter_mm, .. } => {
-                    diameter_mm * 0.5
-                }
+                solidcraft_cam::marks::MarkStyle::CircleCross { diameter_mm, .. } => diameter_mm * 0.5,
             };
             m = m.max(cfg.margin_mm + reach);
         }
@@ -902,10 +847,7 @@ impl VinylApp {
     /// through the profile's path filters: a registration mark is a reference shape, and
     /// blade-offset or min-line would distort it rather than clean it.
     pub(crate) fn finishing_geometry(&self, placed_bbox: (Vec2, Vec2)) -> Vec<Toolpath> {
-        let cam_bbox = (
-            Point::new(placed_bbox.0.x, placed_bbox.0.y),
-            Point::new(placed_bbox.1.x, placed_bbox.1.y),
-        );
+        let cam_bbox = (Point::new(placed_bbox.0.x, placed_bbox.0.y), Point::new(placed_bbox.1.x, placed_bbox.1.y));
         let mut out: Vec<Toolpath> = Vec::new();
         if let Some(cfg) = &self.marks {
             out.extend(solidcraft_cam::marks::registration_marks(cam_bbox, cfg));
@@ -931,10 +873,7 @@ impl VinylApp {
         // the roll still pushes a 5 mm registration mark past the edge if the mark is not
         // counted, so the inflated box is what has to fit.
         let margin = self.finishing_margin();
-        let inflated = (
-            Vec2::new(design_bbox.0.x - margin, design_bbox.0.y - margin),
-            Vec2::new(design_bbox.1.x + margin, design_bbox.1.y + margin),
-        );
+        let inflated = (Vec2::new(design_bbox.0.x - margin, design_bbox.0.y - margin), Vec2::new(design_bbox.1.x + margin, design_bbox.1.y + margin));
         let w = inflated.1.x - inflated.0.x;
         let h = inflated.1.y - inflated.0.y;
         if w > self.roll_width_mm + 1e-6 || h > self.roll_length_mm + 1e-6 {
@@ -961,14 +900,8 @@ impl VinylApp {
                 0.0
             },
         );
-        let placed: Vec<Vec<Vec2>> = if shift.x == 0.0 && shift.y == 0.0 {
-            polys
-        } else {
-            polys
-                .into_iter()
-                .map(|p| p.into_iter().map(|q| q + shift).collect())
-                .collect()
-        };
+        let placed: Vec<Vec<Vec2>> =
+            if shift.x == 0.0 && shift.y == 0.0 { polys } else { polys.into_iter().map(|p| p.into_iter().map(|q| q + shift).collect()).collect() };
         let placed_bbox = bbox_of(&placed);
         // Design geometry goes through the path filters. Finishing geometry does not.
         let design = filters::apply(&self.profile, polylines_to_toolpaths(&placed));
@@ -976,11 +909,7 @@ impl VinylApp {
         // the design first would drag the blade across a mark and leave a nick in it.
         let mut all: Vec<Toolpath> = self.finishing_geometry(placed_bbox);
         all.extend(design);
-        let pen = if pen_up_only {
-            post::Pen::Up
-        } else {
-            post::Pen::Down
-        };
+        let pen = if pen_up_only { post::Pen::Up } else { post::Pen::Down };
         // Emit structurally: the pen state picks the command word, so a dry run never
         // depends on rewriting text that might contain a coordinate 'D'.
         post::emit_with_pen(&self.profile, &all, pen).map_err(|e| e.to_string())
@@ -1003,20 +932,13 @@ impl VinylApp {
             None => return Err("tiling not configured".into()),
         };
         let design_bbox = bbox_of(&polys);
-        let cam_bbox = (
-            Point::new(design_bbox.0.x, design_bbox.0.y),
-            Point::new(design_bbox.1.x, design_bbox.1.y),
-        );
+        let cam_bbox = (Point::new(design_bbox.0.x, design_bbox.0.y), Point::new(design_bbox.1.x, design_bbox.1.y));
         let design = filters::apply(&self.profile, polylines_to_toolpaths(&polys));
         let tiles = solidcraft_cam::tile::tile(&design, cam_bbox, opts);
         if tiles.is_empty() {
             return Err("tiling produced no tiles — the design may be smaller than one tile".into());
         }
-        let pen = if pen_up_only {
-            post::Pen::Up
-        } else {
-            post::Pen::Down
-        };
+        let pen = if pen_up_only { post::Pen::Up } else { post::Pen::Down };
         let mut out = Vec::with_capacity(tiles.len());
         for (i, mut tile) in tiles.into_iter().enumerate() {
             // Tile geometry is in design coordinates. Rebasing to the tile's own origin lets
@@ -1026,11 +948,7 @@ impl VinylApp {
             for tp in &mut tile.toolpaths {
                 tp.translate(-origin.x, -origin.y);
             }
-            let mut all: Vec<Toolpath> = if i == 0 {
-                self.finishing_geometry(design_bbox)
-            } else {
-                Vec::new()
-            };
+            let mut all: Vec<Toolpath> = if i == 0 { self.finishing_geometry(design_bbox) } else { Vec::new() };
             all.extend(tile.toolpaths.iter().cloned());
             let code = post::emit_with_pen(&self.profile, &all, pen).map_err(|e| e.to_string())?;
             out.push((tile, code));
@@ -1054,12 +972,7 @@ impl VinylApp {
     /// Finishing geometry wraps the whole batch: registration marks go around the used area,
     /// not around each decal. Cutting them first lets the operator register the sheet before
     /// the blade starts on a design that would otherwise drag across a mark.
-    pub(crate) fn emit_nested(
-        &self,
-        pen_up_only: bool,
-        gap_mm: f64,
-        allow_rotation: bool,
-    ) -> Result<Vec<NestedGroup>, String> {
+    pub(crate) fn emit_nested(&self, pen_up_only: bool, gap_mm: f64, allow_rotation: bool) -> Result<Vec<NestedGroup>, String> {
         if self.jobs.is_empty() {
             return Err("no jobs queued: add a design with vinyl_job_add first".into());
         }
@@ -1078,41 +991,23 @@ impl VinylApp {
             }
         }
 
-        let pen = if pen_up_only {
-            post::Pen::Up
-        } else {
-            post::Pen::Down
-        };
+        let pen = if pen_up_only { post::Pen::Up } else { post::Pen::Down };
         let mut groups: Vec<NestedGroup> = Vec::with_capacity(colors.len());
 
         for (color, group) in colors.iter().zip(members.iter()) {
             // Filters run per job, before packing: a blade offset is a property of the
             // design's own contours, and packing compressed geometry would make neighbouring
             // parts overlap by the offset.
-            let jobs: Vec<Vec<Toolpath>> = group
-                .iter()
-                .map(|&i| {
-                    filters::apply(
-                        &self.profile,
-                        polylines_to_toolpaths(&self.jobs[i].polylines),
-                    )
-                })
-                .collect();
-            let opts = solidcraft_cam::nest::NestOptions {
-                roll_width_mm: self.roll_width_mm,
-                gap_mm: gap_mm.max(0.0),
-                allow_rotation,
-            };
+            let jobs: Vec<Vec<Toolpath>> =
+                group.iter().map(|&i| filters::apply(&self.profile, polylines_to_toolpaths(&self.jobs[i].polylines))).collect();
+            let opts = solidcraft_cam::nest::NestOptions { roll_width_mm: self.roll_width_mm, gap_mm: gap_mm.max(0.0), allow_rotation };
             let result = solidcraft_cam::nest::nest(&jobs, &opts);
 
             // A group that fits nothing is reported rather than dropped: the operator needs
             // to know which colour failed. The whole call only fails when NOTHING fits.
             let mut placed: Vec<(String, Vec2, bool)> = Vec::with_capacity(result.placed.len());
             for p in &result.placed {
-                let name = group
-                    .get(p.index)
-                    .map(|&g| self.jobs[g].name.clone())
-                    .unwrap_or_default();
+                let name = group.get(p.index).map(|&g| self.jobs[g].name.clone()).unwrap_or_default();
                 placed.push((name, Vec2::new(p.origin.x, p.origin.y), p.rotated));
             }
             let mut unplaced: Vec<String> = Vec::with_capacity(result.unplaced.len());
@@ -1143,26 +1038,13 @@ impl VinylApp {
             }
             all.extend(placed_paths);
 
-            let code = if all.is_empty() {
-                String::new()
-            } else {
-                post::emit_with_pen(&self.profile, &all, pen).map_err(|e| e.to_string())?
-            };
+            let code = if all.is_empty() { String::new() } else { post::emit_with_pen(&self.profile, &all, pen).map_err(|e| e.to_string())? };
 
-            groups.push(NestedGroup {
-                color: color.clone(),
-                placed,
-                unplaced,
-                used_length_mm: result.used_length_mm,
-                code,
-            });
+            groups.push(NestedGroup { color: color.clone(), placed, unplaced, used_length_mm: result.used_length_mm, code });
         }
 
         if groups.iter().all(|g| g.placed.is_empty()) {
-            return Err(format!(
-                "nothing fit the roll: no job is narrower than {:.1} mm in either orientation",
-                self.roll_width_mm
-            ));
+            return Err(format!("nothing fit the roll: no job is narrower than {:.1} mm in either orientation", self.roll_width_mm));
         }
 
         Ok(groups)
@@ -1188,14 +1070,9 @@ impl VinylApp {
                 ));
             }
         } else if !self.ports.is_empty() {
-            self.log(format!(
-                "WARNING: {port} is not in the scanned port list; it may be stale."
-            ));
+            self.log(format!("WARNING: {port} is not in the scanned port list; it may be stale."));
         }
-        self.log(format!(
-            "Sending {label} ({bytes} bytes) to {port} @ {baud} 8-N-1; copy at {}",
-            tmp.display()
-        ));
+        self.log(format!("Sending {label} ({bytes} bytes) to {port} @ {baud} 8-N-1; copy at {}", tmp.display()));
         // A new job starts unpaused and uncancelled. Leftover flags from an aborted job would
         // otherwise stall this one before its first byte reached the wire.
         self.send_ctl.pause.store(false, Ordering::Relaxed);
@@ -1274,9 +1151,7 @@ impl VinylApp {
                 // Advertise the port so a client does not have to guess when the default was
                 // taken and the listener landed somewhere else.
                 let _ = fs::write(control_port_file(), port.to_string());
-                self.log(format!(
-                    "Control socket on 127.0.0.1:{port} (quit, state, tools/list, tools/call)"
-                ));
+                self.log(format!("Control socket on 127.0.0.1:{port} (quit, state, tools/list, tools/call)"));
             }
             Err(e) => self.log(format!("Control socket failed to start: {e}")),
         }
@@ -1340,10 +1215,7 @@ impl VinylApp {
     /// the loaded roll. A jog is a manual move with no design to bound it, so without this a
     /// held-down arrow walks the carriage off the end of the rail.
     pub(crate) fn travel_limits(&self) -> (f64, f64) {
-        (
-            self.profile.max_x_mm.unwrap_or(self.roll_width_mm),
-            self.profile.max_y_mm.unwrap_or(self.roll_length_mm),
-        )
+        (self.profile.max_x_mm.unwrap_or(self.roll_width_mm), self.profile.max_y_mm.unwrap_or(self.roll_length_mm))
     }
 
     pub(crate) fn jog(&mut self, dx: f64, dy: f64) {
@@ -1358,11 +1230,7 @@ impl VinylApp {
             ));
         }
         self.pending_pos = Some(p);
-        let cmd = format!(
-            "IN;PA;U{:.0},{:.0};@",
-            p.x * self.profile.units_per_mm,
-            p.y * self.profile.units_per_mm
-        );
+        let cmd = format!("IN;PA;U{:.0},{:.0};@", p.x * self.profile.units_per_mm, p.y * self.profile.units_per_mm);
         self.send_simple(&cmd, "jog");
     }
 
@@ -1370,11 +1238,7 @@ impl VinylApp {
     /// both the pen state and the move, so a zero-length U lifts the blade without moving it.
     pub(crate) fn pen_up(&mut self) {
         let p = self.pos_mm;
-        let cmd = format!(
-            "IN;PA;U{:.0},{:.0};@",
-            p.x * self.profile.units_per_mm,
-            p.y * self.profile.units_per_mm
-        );
+        let cmd = format!("IN;PA;U{:.0},{:.0};@", p.x * self.profile.units_per_mm, p.y * self.profile.units_per_mm);
         self.send_simple(&cmd, "pen up");
     }
 
@@ -1384,11 +1248,7 @@ impl VinylApp {
     /// `pen_up` or `home`, which is why the tool reports that state back to the caller.
     pub(crate) fn pen_down(&mut self) {
         let p = self.pos_mm;
-        let cmd = format!(
-            "IN;PA;D{:.0},{:.0};@",
-            p.x * self.profile.units_per_mm,
-            p.y * self.profile.units_per_mm
-        );
+        let cmd = format!("IN;PA;D{:.0},{:.0};@", p.x * self.profile.units_per_mm, p.y * self.profile.units_per_mm);
         self.send_simple(&cmd, "pen down");
     }
 
@@ -1439,12 +1299,7 @@ impl VinylApp {
         self.step_y = 0.0;
         self.needs_fit = true;
         let b = self.raw_bbox;
-        self.log(format!(
-            "Loaded demo sticker: {} paths, {:.1} × {:.1} mm",
-            self.raw_polylines.len(),
-            b.1.x - b.0.x,
-            b.1.y - b.0.y
-        ));
+        self.log(format!("Loaded demo sticker: {} paths, {:.1} × {:.1} mm", self.raw_polylines.len(), b.1.x - b.0.x, b.1.y - b.0.y));
     }
 }
 
@@ -1472,11 +1327,7 @@ impl eframe::App for VinylApp {
                 ui.text_edit_singleline(&mut self.port_name);
                 // Port numbers are assigned by the OS and move when devices are replugged.
                 // Listing what actually exists turns "COM3" from a guess into a choice.
-                if ui
-                    .button("⟳")
-                    .on_hover_text("Rescan serial ports")
-                    .clicked()
-                {
+                if ui.button("⟳").on_hover_text("Rescan serial ports").clicked() {
                     self.refresh_ports();
                 }
                 for p in self.ports.clone() {
@@ -1491,30 +1342,19 @@ impl eframe::App for VinylApp {
                         self.port_name = p.name;
                     }
                 }
-                if ui
-                    .button("Probe")
-                    .on_hover_text("Open the port and report what it answers")
-                    .clicked()
-                {
+                if ui.button("Probe").on_hover_text("Open the port and report what it answers").clicked() {
                     self.probe_port();
                 }
                 ui.label("Baud:");
                 ui.add(egui::DragValue::new(&mut self.baud).speed(100.0).range(1200..=115200));
                 ui.separator();
-                ui.checkbox(&mut self.pen_up_only, "Pen-up dry run (blade stays up — nothing is cut)")
-                    .on_hover_text(
-                        "Check this to trace the design without cutting: every draw move is sent \
+                ui.checkbox(&mut self.pen_up_only, "Pen-up dry run (blade stays up — nothing is cut)").on_hover_text(
+                    "Check this to trace the design without cutting: every draw move is sent \
                          as a pen-up travel. Leave it unchecked to drop the blade and cut.",
-                    );
+                );
                 ui.horizontal(|ui| {
                     ui.label("Overcut:");
-                    ui.add(
-                        egui::DragValue::new(&mut self.profile.overcut_mm)
-                            .speed(0.05)
-                            .range(0.0..=2.0)
-                            .suffix(" mm"),
-                    )
-                    .on_hover_text(
+                    ui.add(egui::DragValue::new(&mut self.profile.overcut_mm).speed(0.05).range(0.0..=2.0).suffix(" mm")).on_hover_text(
                         "Cut this far past the start of each closed contour. A drag knife \
                          leaves a thin vinyl bridge wherever the entry and exit cuts fail to \
                          meet; 0.1–0.3 mm closes it. 0 disables overcut.",
@@ -1582,12 +1422,11 @@ impl eframe::App for VinylApp {
                             self.profile.max_x_mm = set.then_some(635.0);
                         }
                         if let Some(v) = &mut self.profile.max_x_mm {
-                            ui.add(egui::DragValue::new(v).speed(1.0).range(1.0..=3000.0))
-                                .on_hover_text(
-                                    "Machine travel width. A design past this is refused \
+                            ui.add(egui::DragValue::new(v).speed(1.0).range(1.0..=3000.0)).on_hover_text(
+                                "Machine travel width. A design past this is refused \
                                      instead of driving the carriage into its end stop. \
                                      SC2 widths: 635, 863.6, 1346.2 mm.",
-                                );
+                            );
                         } else {
                             ui.label("(no limit)");
                         }
@@ -1610,53 +1449,29 @@ impl eframe::App for VinylApp {
                 ui.collapsing("Path quality", |ui| {
                     ui.horizontal(|ui| {
                         ui.label("Blade offset:");
-                        ui.add(
-                            egui::DragValue::new(&mut self.profile.blade_offset_mm)
-                                .speed(0.01)
-                                .range(0.0..=2.0)
-                                .suffix(" mm"),
-                        )
-                        .on_hover_text(
+                        ui.add(egui::DragValue::new(&mut self.profile.blade_offset_mm).speed(0.01).range(0.0..=2.0).suffix(" mm")).on_hover_text(
                             "Drag-knife corner compensation: how far the blade tip trails \
                              the pivot. 0 disables. Typical 0.25–0.5 mm.",
                         );
                     });
                     ui.horizontal(|ui| {
                         ui.label("Min line:");
-                        ui.add(
-                            egui::DragValue::new(&mut self.profile.min_line_mm)
-                                .speed(0.01)
-                                .range(0.0..=5.0)
-                                .suffix(" mm"),
-                        )
-                        .on_hover_text(
+                        ui.add(egui::DragValue::new(&mut self.profile.min_line_mm).speed(0.01).range(0.0..=5.0).suffix(" mm")).on_hover_text(
                             "Drop line segments shorter than this. Prevents blobs and wasted \
                              blade cycles. 0 disables.",
                         );
                     });
                     ui.horizontal(|ui| {
                         ui.label("Merge gap:");
-                        ui.add(
-                            egui::DragValue::new(&mut self.profile.linemerge_tol_mm)
-                                .speed(0.01)
-                                .range(0.0..=5.0)
-                                .suffix(" mm"),
-                        )
-                        .on_hover_text(
+                        ui.add(egui::DragValue::new(&mut self.profile.linemerge_tol_mm).speed(0.01).range(0.0..=5.0).suffix(" mm")).on_hover_text(
                             "Join open contours whose ends meet within this distance. \
                              0 disables.",
                         );
                     });
                     ui.horizontal(|ui| {
                         ui.label("Repeat passes:");
-                        ui.add(
-                            egui::DragValue::new(&mut self.profile.repeat_passes)
-                                .speed(1.0)
-                                .range(1..=10),
-                        )
-                        .on_hover_text(
-                            "Cut each contour this many times. Thick material needs 2–3.",
-                        );
+                        ui.add(egui::DragValue::new(&mut self.profile.repeat_passes).speed(1.0).range(1..=10))
+                            .on_hover_text("Cut each contour this many times. Thick material needs 2–3.");
                     });
                 });
                 ui.separator();
@@ -1664,122 +1479,116 @@ impl eframe::App for VinylApp {
             });
         });
 
-        egui::containers::Panel::left("controls")
-            .resizable(true)
-            .default_size(320.0)
-            .show(ui, |ui| {
-                ui.heading("Design");
-                ui.horizontal(|ui| {
-                    if ui.button("Load SVG/DXF").clicked() {
-                        if let Some(p) = rfd::FileDialog::new()
-                            .add_filter("Designs", &["svg", "dxf"])
-                            .pick_file()
-                        {
-                            self.load_design(&p);
-                        }
+        egui::containers::Panel::left("controls").resizable(true).default_size(320.0).show(ui, |ui| {
+            ui.heading("Design");
+            ui.horizontal(|ui| {
+                if ui.button("Load SVG/DXF").clicked() {
+                    if let Some(p) = rfd::FileDialog::new().add_filter("Designs", &["svg", "dxf"]).pick_file() {
+                        self.load_design(&p);
                     }
-                    if ui.button("Clear").clicked() {
-                        self.raw_polylines.clear();
-                        self.raw_colors.clear();
-                        self.raw_bbox = (Vec2::ZERO, Vec2::ZERO);
-                        self.needs_fit = true;
-                        self.log("Cleared design");
-                    }
-                });
-                ui.label(format!(
-                    "Paths: {}  BBox: {:.1} × {:.1} mm",
-                    self.raw_polylines.len(),
-                    self.raw_bbox.1.x - self.raw_bbox.0.x,
-                    self.raw_bbox.1.y - self.raw_bbox.0.y
-                ));
-
-                ui.separator();
-                ui.heading("Roll");
-                ui.horizontal(|ui| {
-                    ui.label("Width (mm)");
-                    ui.add(egui::DragValue::new(&mut self.roll_width_mm).speed(1.0).range(1.0..=3000.0));
-                });
-                ui.horizontal(|ui| {
-                    ui.label("Length (mm)");
-                    ui.add(egui::DragValue::new(&mut self.roll_length_mm).speed(10.0).range(1.0..=20000.0));
-                });
-                if ui.button("Fit roll to view").clicked() {
+                }
+                if ui.button("Clear").clicked() {
+                    self.raw_polylines.clear();
+                    self.raw_colors.clear();
+                    self.raw_bbox = (Vec2::ZERO, Vec2::ZERO);
                     self.needs_fit = true;
-                }
-
-                ui.separator();
-                ui.heading("Transform");
-                ui.horizontal(|ui| {
-                    ui.label("Move X");
-                    ui.add(egui::DragValue::new(&mut self.offset.x).speed(1.0));
-                    ui.label("Y");
-                    ui.add(egui::DragValue::new(&mut self.offset.y).speed(1.0));
-                });
-                ui.horizontal(|ui| {
-                    ui.label("Scale");
-                    ui.add(egui::DragValue::new(&mut self.scale).speed(0.01).range(0.01..=100.0));
-                    ui.label("Rotate °");
-                    let mut deg = self.rotation.to_degrees();
-                    if ui.add(egui::DragValue::new(&mut deg).speed(1.0)).changed() {
-                        self.rotation = deg.to_radians();
-                    }
-                });
-                if ui.button("Reset transform").clicked() {
-                    self.offset = Vec2::ZERO;
-                    self.scale = 1.0;
-                    self.rotation = 0.0;
-                }
-
-                ui.separator();
-                ui.heading("Step & repeat");
-                ui.horizontal(|ui| {
-                    ui.label("Copies X");
-                    ui.add(egui::DragValue::new(&mut self.copies_x).speed(1.0).range(1..=100));
-                    ui.label("Y");
-                    ui.add(egui::DragValue::new(&mut self.copies_y).speed(1.0).range(1..=100));
-                });
-                ui.horizontal(|ui| {
-                    ui.label("Step X");
-                    ui.add(egui::DragValue::new(&mut self.step_x).speed(1.0));
-                    ui.label("Y");
-                    ui.add(egui::DragValue::new(&mut self.step_y).speed(1.0));
-                });
-
-                ui.separator();
-                ui.heading("Cutter");
-                ui.horizontal(|ui| {
-                    if ui.button("Send design").clicked() {
-                        self.send_design();
-                    }
-                    if ui.button("Test square").clicked() {
-                        self.send_test_square();
-                    }
-                    if ui.button("Home").clicked() {
-                        self.home();
-                    }
-                });
-                ui.horizontal(|ui| {
-                    if ui.button("◀ 10").clicked() {
-                        self.jog(-10.0, 0.0);
-                    }
-                    if ui.button("▶ 10").clicked() {
-                        self.jog(10.0, 0.0);
-                    }
-                    if ui.button("▲ 10").clicked() {
-                        self.jog(0.0, 10.0);
-                    }
-                    if ui.button("▼ 10").clicked() {
-                        self.jog(0.0, -10.0);
-                    }
-                });
-                ui.label(format!("Tracked pos: {:.1}, {:.1} mm", self.pos_mm.x, self.pos_mm.y));
-
-                ui.separator();
-                ui.heading("Log");
-                for line in &self.log {
-                    ui.label(line);
+                    self.log("Cleared design");
                 }
             });
+            ui.label(format!(
+                "Paths: {}  BBox: {:.1} × {:.1} mm",
+                self.raw_polylines.len(),
+                self.raw_bbox.1.x - self.raw_bbox.0.x,
+                self.raw_bbox.1.y - self.raw_bbox.0.y
+            ));
+
+            ui.separator();
+            ui.heading("Roll");
+            ui.horizontal(|ui| {
+                ui.label("Width (mm)");
+                ui.add(egui::DragValue::new(&mut self.roll_width_mm).speed(1.0).range(1.0..=3000.0));
+            });
+            ui.horizontal(|ui| {
+                ui.label("Length (mm)");
+                ui.add(egui::DragValue::new(&mut self.roll_length_mm).speed(10.0).range(1.0..=20000.0));
+            });
+            if ui.button("Fit roll to view").clicked() {
+                self.needs_fit = true;
+            }
+
+            ui.separator();
+            ui.heading("Transform");
+            ui.horizontal(|ui| {
+                ui.label("Move X");
+                ui.add(egui::DragValue::new(&mut self.offset.x).speed(1.0));
+                ui.label("Y");
+                ui.add(egui::DragValue::new(&mut self.offset.y).speed(1.0));
+            });
+            ui.horizontal(|ui| {
+                ui.label("Scale");
+                ui.add(egui::DragValue::new(&mut self.scale).speed(0.01).range(0.01..=100.0));
+                ui.label("Rotate °");
+                let mut deg = self.rotation.to_degrees();
+                if ui.add(egui::DragValue::new(&mut deg).speed(1.0)).changed() {
+                    self.rotation = deg.to_radians();
+                }
+            });
+            if ui.button("Reset transform").clicked() {
+                self.offset = Vec2::ZERO;
+                self.scale = 1.0;
+                self.rotation = 0.0;
+            }
+
+            ui.separator();
+            ui.heading("Step & repeat");
+            ui.horizontal(|ui| {
+                ui.label("Copies X");
+                ui.add(egui::DragValue::new(&mut self.copies_x).speed(1.0).range(1..=100));
+                ui.label("Y");
+                ui.add(egui::DragValue::new(&mut self.copies_y).speed(1.0).range(1..=100));
+            });
+            ui.horizontal(|ui| {
+                ui.label("Step X");
+                ui.add(egui::DragValue::new(&mut self.step_x).speed(1.0));
+                ui.label("Y");
+                ui.add(egui::DragValue::new(&mut self.step_y).speed(1.0));
+            });
+
+            ui.separator();
+            ui.heading("Cutter");
+            ui.horizontal(|ui| {
+                if ui.button("Send design").clicked() {
+                    self.send_design();
+                }
+                if ui.button("Test square").clicked() {
+                    self.send_test_square();
+                }
+                if ui.button("Home").clicked() {
+                    self.home();
+                }
+            });
+            ui.horizontal(|ui| {
+                if ui.button("◀ 10").clicked() {
+                    self.jog(-10.0, 0.0);
+                }
+                if ui.button("▶ 10").clicked() {
+                    self.jog(10.0, 0.0);
+                }
+                if ui.button("▲ 10").clicked() {
+                    self.jog(0.0, 10.0);
+                }
+                if ui.button("▼ 10").clicked() {
+                    self.jog(0.0, -10.0);
+                }
+            });
+            ui.label(format!("Tracked pos: {:.1}, {:.1} mm", self.pos_mm.x, self.pos_mm.y));
+
+            ui.separator();
+            ui.heading("Log");
+            for line in &self.log {
+                ui.label(line);
+            }
+        });
 
         egui::containers::CentralPanel::no_frame().show(ui, |ui| {
             let (response, painter) = ui.allocate_painter(ui.available_size(), egui::Sense::click_and_drag());
@@ -1815,10 +1624,7 @@ impl eframe::App for VinylApp {
                 self.drag_design = false;
                 if let Some(p) = response.interact_pointer_pos() {
                     let mm = screen_to_mm(p, rect, self.pan, self.zoom);
-                    self.drag_design = mm.x >= design_bbox.0.x
-                        && mm.x <= design_bbox.1.x
-                        && mm.y >= design_bbox.0.y
-                        && mm.y <= design_bbox.1.y;
+                    self.drag_design = mm.x >= design_bbox.0.x && mm.x <= design_bbox.1.x && mm.y >= design_bbox.0.y && mm.y <= design_bbox.1.y;
                 }
             }
             if response.dragged() {
@@ -1869,16 +1675,9 @@ impl eframe::App for VinylApp {
                 if poly.len() < 2 {
                     continue;
                 }
-                let pts: Vec<egui::Pos2> = poly
-                    .iter()
-                    .map(|p| mm_to_screen(*p, rect, self.pan, self.zoom))
-                    .collect();
+                let pts: Vec<egui::Pos2> = poly.iter().map(|p| mm_to_screen(*p, rect, self.pan, self.zoom)).collect();
                 let closed = poly.len() > 2 && (poly[0] - poly[poly.len() - 1]).len() < 1e-6;
-                let color = if closed {
-                    egui::Color32::from_rgb(90, 220, 140)
-                } else {
-                    egui::Color32::from_rgb(120, 190, 255)
-                };
+                let color = if closed { egui::Color32::from_rgb(90, 220, 140) } else { egui::Color32::from_rgb(120, 190, 255) };
                 painter.add(egui::Shape::line(pts, egui::Stroke::new(1.4, color)));
             }
 

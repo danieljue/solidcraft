@@ -37,19 +37,11 @@ pub struct Similarity {
 
 impl Similarity {
     /// The identity: no movement, no turn, no scale change.
-    pub const IDENTITY: Self = Self {
-        a: 1.0,
-        b: 0.0,
-        tx: 0.0,
-        ty: 0.0,
-    };
+    pub const IDENTITY: Self = Self { a: 1.0, b: 0.0, tx: 0.0, ty: 0.0 };
 
     /// Apply to one point.
     pub fn apply(&self, p: Point) -> Point {
-        Point::new(
-            self.a * p.x - self.b * p.y + self.tx,
-            self.b * p.x + self.a * p.y + self.ty,
-        )
+        Point::new(self.a * p.x - self.b * p.y + self.tx, self.b * p.x + self.a * p.y + self.ty)
     }
 
     /// Uniform scale factor implied by the coefficients.
@@ -75,11 +67,7 @@ impl Similarity {
 /// fault. A sheet that is genuinely 5% long is still accommodated.
 pub fn solve(design: &[Point], machine: &[Point]) -> Result<Similarity, String> {
     if design.len() != machine.len() {
-        return Err(format!(
-            "alignment needs matching point counts, got {} design and {} machine",
-            design.len(),
-            machine.len()
-        ));
+        return Err(format!("alignment needs matching point counts, got {} design and {} machine", design.len(), machine.len()));
     }
     match design.len() {
         0 => Err("alignment needs at least one point".into()),
@@ -88,11 +76,7 @@ pub fn solve(design: &[Point], machine: &[Point]) -> Result<Similarity, String> 
             // shift to sit on it.
             let d = design[0];
             let m = machine[0];
-            Ok(Similarity {
-                tx: m.x - d.x,
-                ty: m.y - d.y,
-                ..Similarity::IDENTITY
-            })
+            Ok(Similarity { tx: m.x - d.x, ty: m.y - d.y, ..Similarity::IDENTITY })
         }
         2 => {
             // Two marks fix rotation and translation, but not scale: two points are always
@@ -159,12 +143,7 @@ fn solve_least_squares(design: &[Point], machine: &[Point]) -> Result<Similarity
              check that each mark was jogged to its matching printed position"
         ));
     }
-    Ok(Similarity {
-        a,
-        b,
-        tx: mx - (a * px - b * py),
-        ty: my - (b * px + a * py),
-    })
+    Ok(Similarity { a, b, tx: mx - (a * px - b * py), ty: my - (b * px + a * py) })
 }
 
 /// Apply a similarity to every segment of every toolpath, in place.
@@ -234,11 +213,7 @@ mod tests {
         let m = [Point::new(0.0, 0.0), Point::new(0.0, 10.0)];
         let xf = solve(&d, &m).unwrap();
         assert!(close(xf.scale(), 1.0), "two points cannot reveal scale");
-        assert!(
-            close(xf.rotation_rad(), std::f64::consts::FRAC_PI_2),
-            "expected 90 degrees, got {}",
-            xf.rotation_rad().to_degrees()
-        );
+        assert!(close(xf.rotation_rad(), std::f64::consts::FRAC_PI_2), "expected 90 degrees, got {}", xf.rotation_rad().to_degrees());
         let out = xf.apply(Point::new(10.0, 0.0));
         assert!(close(out.x, 0.0) && close(out.y, 10.0));
     }
@@ -259,16 +234,8 @@ mod tests {
     #[test]
     fn three_points_recover_uniform_scale() {
         // A 2x enlarged, translated square. Scale must come back as 2.
-        let d = [
-            Point::new(0.0, 0.0),
-            Point::new(10.0, 0.0),
-            Point::new(0.0, 10.0),
-        ];
-        let m = [
-            Point::new(100.0, 100.0),
-            Point::new(120.0, 100.0),
-            Point::new(100.0, 120.0),
-        ];
+        let d = [Point::new(0.0, 0.0), Point::new(10.0, 0.0), Point::new(0.0, 10.0)];
+        let m = [Point::new(100.0, 100.0), Point::new(120.0, 100.0), Point::new(100.0, 120.0)];
         let xf = solve(&d, &m).unwrap();
         assert!(close(xf.scale(), 2.0), "expected scale 2, got {}", xf.scale());
         assert!(close(xf.rotation_rad(), 0.0), "no rotation expected");
@@ -278,18 +245,8 @@ mod tests {
     fn four_points_average_a_small_jog_error() {
         // Three perfect corners and one 0.1 mm long. The fit should stay close to identity
         // and every mark should land within a fraction of a millimetre.
-        let d = [
-            Point::new(0.0, 0.0),
-            Point::new(100.0, 0.0),
-            Point::new(100.0, 100.0),
-            Point::new(0.0, 100.0),
-        ];
-        let m = [
-            Point::new(0.0, 0.0),
-            Point::new(100.0, 0.0),
-            Point::new(100.0, 100.0),
-            Point::new(0.0, 100.1),
-        ];
+        let d = [Point::new(0.0, 0.0), Point::new(100.0, 0.0), Point::new(100.0, 100.0), Point::new(0.0, 100.0)];
+        let m = [Point::new(0.0, 0.0), Point::new(100.0, 0.0), Point::new(100.0, 100.0), Point::new(0.0, 100.1)];
         let xf = solve(&d, &m).unwrap();
         assert!((xf.scale() - 1.0).abs() < 1e-3);
         for (p, q) in d.iter().zip(m.iter()) {
@@ -317,28 +274,15 @@ mod tests {
     #[test]
     fn absurd_scale_is_refused() {
         // A mark jogged 10x away suggests a mis-jog, not a 10x stretched sheet.
-        let d = [
-            Point::new(0.0, 0.0),
-            Point::new(10.0, 0.0),
-            Point::new(0.0, 10.0),
-        ];
-        let m = [
-            Point::new(0.0, 0.0),
-            Point::new(100.0, 0.0),
-            Point::new(0.0, 100.0),
-        ];
+        let d = [Point::new(0.0, 0.0), Point::new(10.0, 0.0), Point::new(0.0, 10.0)];
+        let m = [Point::new(0.0, 0.0), Point::new(100.0, 0.0), Point::new(0.0, 100.0)];
         assert!(solve(&d, &m).is_err());
     }
 
     #[test]
     fn toolpaths_transform_in_place() {
         let mut tp = Toolpath::rectangle(0.0, 0.0, 10.0, 10.0);
-        let xf = Similarity {
-            a: 0.0,
-            b: 1.0,
-            tx: 0.0,
-            ty: 0.0,
-        };
+        let xf = Similarity { a: 0.0, b: 1.0, tx: 0.0, ty: 0.0 };
         apply_to_toolpaths(std::slice::from_mut(&mut tp), &xf);
         // A 90 degree turn maps (10,0) onto (0,10).
         let seg = &tp.segments[0];

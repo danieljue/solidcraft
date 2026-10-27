@@ -39,11 +39,7 @@ pub struct NestOptions {
 
 impl Default for NestOptions {
     fn default() -> Self {
-        Self {
-            roll_width_mm: 610.0,
-            gap_mm: 2.0,
-            allow_rotation: false,
-        }
+        Self { roll_width_mm: 610.0, gap_mm: 2.0, allow_rotation: false }
     }
 }
 
@@ -115,24 +111,11 @@ fn rotate_ccw(p: Point) -> Point {
 fn rotate_seg_ccw(seg: &Segment) -> Segment {
     match *seg {
         Segment::Line { a, b } => Segment::Line { a: rotate_ccw(a), b: rotate_ccw(b) },
-        Segment::Arc { center, radius, start, sweep } => Segment::Arc {
-            center: rotate_ccw(center),
-            radius,
-            start: start + std::f64::consts::FRAC_PI_2,
-            sweep,
-        },
-        Segment::Cubic { p0, p1, p2, p3 } => Segment::Cubic {
-            p0: rotate_ccw(p0),
-            p1: rotate_ccw(p1),
-            p2: rotate_ccw(p2),
-            p3: rotate_ccw(p3),
-        },
-        Segment::Conic { a, apex, b, w } => Segment::Conic {
-            a: rotate_ccw(a),
-            apex: rotate_ccw(apex),
-            b: rotate_ccw(b),
-            w,
-        },
+        Segment::Arc { center, radius, start, sweep } => {
+            Segment::Arc { center: rotate_ccw(center), radius, start: start + std::f64::consts::FRAC_PI_2, sweep }
+        }
+        Segment::Cubic { p0, p1, p2, p3 } => Segment::Cubic { p0: rotate_ccw(p0), p1: rotate_ccw(p1), p2: rotate_ccw(p2), p3: rotate_ccw(p3) },
+        Segment::Conic { a, apex, b, w } => Segment::Conic { a: rotate_ccw(a), apex: rotate_ccw(apex), b: rotate_ccw(b), w },
         Segment::Bezier { n, p } => {
             let mut q = p;
             let count = (n as usize).min(p.len().saturating_sub(1)) + 1;
@@ -147,17 +130,8 @@ fn rotate_seg_ccw(seg: &Segment) -> Segment {
 /// Rigidly turn a job 90 degrees CCW and translate it so its bounding-box minimum sits at
 /// `(0, 0)`. Returning geometry in a known quadrant keeps the shelf arithmetic simple.
 fn rotate_to_origin(toolpaths: &[Toolpath]) -> Vec<Toolpath> {
-    let mut out: Vec<Toolpath> = toolpaths
-        .iter()
-        .map(|tp| Toolpath {
-            segments: tp
-                .segments
-                .iter()
-                .map(rotate_seg_ccw)
-                .collect(),
-            closed: tp.closed,
-        })
-        .collect();
+    let mut out: Vec<Toolpath> =
+        toolpaths.iter().map(|tp| Toolpath { segments: tp.segments.iter().map(rotate_seg_ccw).collect(), closed: tp.closed }).collect();
     if let Some((min, _)) = bounds(&out) {
         for tp in &mut out {
             tp.translate(-min.x, -min.y);
@@ -223,13 +197,7 @@ pub fn nest(jobs: &[Vec<Toolpath>], opts: &NestOptions) -> NestResult {
             }
         }
 
-        items.push(Item {
-            index,
-            w,
-            h,
-            rotated,
-            paths,
-        });
+        items.push(Item { index, w, h, rotated, paths });
     }
 
     // Tallest first: a short job left until last can fill the ragged top of the roll, while
@@ -248,11 +216,7 @@ pub fn nest(jobs: &[Vec<Toolpath>], opts: &NestOptions) -> NestResult {
     for item in items {
         let mut target: Option<usize> = None;
         for (i, shelf) in shelves.iter().enumerate() {
-            let needed = if shelf.used_x > 0.0 {
-                shelf.used_x + gap + item.w
-            } else {
-                item.w
-            };
+            let needed = if shelf.used_x > 0.0 { shelf.used_x + gap + item.w } else { item.w };
             // The item must fit the roll AND fit within the shelf's already-claimed height
             // band; otherwise a short job would poke into the shelf above it.
             if needed <= roll_w + 1e-9 && item.h <= shelf.height + 1e-9 {
@@ -264,49 +228,25 @@ pub fn nest(jobs: &[Vec<Toolpath>], opts: &NestOptions) -> NestResult {
         let origin = match target {
             Some(i) => {
                 let shelf = &mut shelves[i];
-                let x = if shelf.used_x > 0.0 {
-                    shelf.used_x + gap
-                } else {
-                    0.0
-                };
+                let x = if shelf.used_x > 0.0 { shelf.used_x + gap } else { 0.0 };
                 shelf.used_x = x + item.w;
                 Point::new(x, shelf.y)
             }
             None => {
                 // New shelf below all existing ones. A shelf's band is as tall as its tallest
                 // job, so the next shelf starts after the tallest job in the previous band.
-                let y = shelves
-                    .last()
-                    .map(|s| s.y + s.height + gap)
-                    .unwrap_or(0.0);
-                shelves.push(Shelf {
-                    y,
-                    used_x: item.w,
-                    height: item.h,
-                });
+                let y = shelves.last().map(|s| s.y + s.height + gap).unwrap_or(0.0);
+                shelves.push(Shelf { y, used_x: item.w, height: item.h });
                 Point::new(0.0, y)
             }
         };
 
-        placed.push(Placed {
-            index: item.index,
-            origin,
-            rotated: item.rotated,
-            toolpaths: move_to(&item.paths, origin),
-        });
+        placed.push(Placed { index: item.index, origin, rotated: item.rotated, toolpaths: move_to(&item.paths, origin) });
     }
 
-    let used_length_mm = shelves
-        .last()
-        .map(|s| s.y + s.height)
-        .unwrap_or(0.0);
+    let used_length_mm = shelves.last().map(|s| s.y + s.height).unwrap_or(0.0);
 
-    NestResult {
-        placed,
-        unplaced,
-        used_length_mm,
-        roll_width_mm: roll_w,
-    }
+    NestResult { placed, unplaced, used_length_mm, roll_width_mm: roll_w }
 }
 
 #[cfg(test)]
@@ -331,11 +271,7 @@ mod tests {
 
     #[test]
     fn two_small_jobs_share_one_shelf() {
-        let opts = NestOptions {
-            roll_width_mm: 100.0,
-            gap_mm: 0.0,
-            allow_rotation: false,
-        };
+        let opts = NestOptions { roll_width_mm: 100.0, gap_mm: 0.0, allow_rotation: false };
         let r = nest(&[rect(40.0, 20.0), rect(40.0, 20.0)], &opts);
         assert_eq!(r.placed.len(), 2);
         assert!(r.unplaced.is_empty());
@@ -348,11 +284,7 @@ mod tests {
 
     #[test]
     fn third_job_opens_a_second_shelf() {
-        let opts = NestOptions {
-            roll_width_mm: 100.0,
-            gap_mm: 0.0,
-            allow_rotation: false,
-        };
+        let opts = NestOptions { roll_width_mm: 100.0, gap_mm: 0.0, allow_rotation: false };
         let jobs = vec![rect(40.0, 20.0), rect(40.0, 20.0), rect(40.0, 20.0)];
         let r = nest(&jobs, &opts);
         assert_eq!(r.placed.len(), 3);
@@ -362,11 +294,7 @@ mod tests {
 
     #[test]
     fn gap_is_honoured_between_jobs() {
-        let opts = NestOptions {
-            roll_width_mm: 100.0,
-            gap_mm: 5.0,
-            allow_rotation: false,
-        };
+        let opts = NestOptions { roll_width_mm: 100.0, gap_mm: 5.0, allow_rotation: false };
         let r = nest(&[rect(40.0, 20.0), rect(40.0, 20.0)], &opts);
         // 40 + 5 + 40 = 85 <= 100, so same shelf with a 5 mm gap.
         assert_eq!(r.placed[1].origin, Point::new(45.0, 0.0));
@@ -374,11 +302,7 @@ mod tests {
 
     #[test]
     fn oversized_job_is_reported_not_dropped() {
-        let opts = NestOptions {
-            roll_width_mm: 100.0,
-            gap_mm: 0.0,
-            allow_rotation: false,
-        };
+        let opts = NestOptions { roll_width_mm: 100.0, gap_mm: 0.0, allow_rotation: false };
         let r = nest(&[rect(150.0, 20.0)], &opts);
         assert!(r.placed.is_empty());
         assert_eq!(r.unplaced, vec![0]);
@@ -386,11 +310,7 @@ mod tests {
 
     #[test]
     fn rotation_saves_an_oversized_job() {
-        let opts = NestOptions {
-            roll_width_mm: 100.0,
-            gap_mm: 0.0,
-            allow_rotation: true,
-        };
+        let opts = NestOptions { roll_width_mm: 100.0, gap_mm: 0.0, allow_rotation: true };
         // 40 wide x 90 tall: too wide as drawn, fits when turned.
         let r = nest(&[rect(40.0, 90.0)], &opts);
         // Actually 40 <= 100 already fits; use a job that really needs the turn.
@@ -404,11 +324,7 @@ mod tests {
 
     #[test]
     fn rotation_is_refused_when_it_would_not_help() {
-        let opts = NestOptions {
-            roll_width_mm: 100.0,
-            gap_mm: 0.0,
-            allow_rotation: true,
-        };
+        let opts = NestOptions { roll_width_mm: 100.0, gap_mm: 0.0, allow_rotation: true };
         let r = nest(&[rect(120.0, 120.0)], &opts);
         assert!(r.placed.is_empty());
         assert_eq!(r.unplaced, vec![0]);
@@ -416,11 +332,7 @@ mod tests {
 
     #[test]
     fn placed_geometry_keeps_its_shape() {
-        let opts = NestOptions {
-            roll_width_mm: 100.0,
-            gap_mm: 0.0,
-            allow_rotation: false,
-        };
+        let opts = NestOptions { roll_width_mm: 100.0, gap_mm: 0.0, allow_rotation: false };
         let r = nest(&[rect(30.0, 10.0), rect(30.0, 10.0)], &opts);
         let (min, max) = bounds(&r.placed[1].toolpaths).unwrap();
         assert!((max.x - min.x - 30.0).abs() < 1e-9);
@@ -429,11 +341,7 @@ mod tests {
 
     #[test]
     fn tallest_shelf_first_reduces_length() {
-        let opts = NestOptions {
-            roll_width_mm: 100.0,
-            gap_mm: 0.0,
-            allow_rotation: false,
-        };
+        let opts = NestOptions { roll_width_mm: 100.0, gap_mm: 0.0, allow_rotation: false };
         // Heights 10, 60, 10 across a 100 mm roll with 50-wide jobs: two per shelf.
         let jobs = vec![rect(50.0, 10.0), rect(50.0, 60.0), rect(50.0, 10.0)];
         let r = nest(&jobs, &opts);

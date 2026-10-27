@@ -17,19 +17,15 @@ pub mod post;
 pub mod profile;
 pub mod tile;
 
-pub use align::{apply_to_toolpaths as apply_alignment, solve as solve_alignment, Similarity};
-pub use boolean::{boolean_paths, signed_area as boolean_signed_area, weld, BooleanOp, FillMode};
+pub use align::{Similarity, apply_to_toolpaths as apply_alignment, solve as solve_alignment};
+pub use boolean::{BooleanOp, FillMode, boolean_paths, signed_area as boolean_signed_area, weld};
 pub use cut_job::{
-    project_and_generate_cut_job, region_to_toolpaths, section_to_toolpaths, slice_mesh, CutJob, CutJobError,
-    CutJobRequest, CutJobStats, CutOptions,
+    CutJob, CutJobError, CutJobRequest, CutJobStats, CutOptions, project_and_generate_cut_job, region_to_toolpaths, section_to_toolpaths, slice_mesh,
 };
 pub use filters::apply as apply_filters;
 pub use geom::{Point, Segment, Toolpath};
 pub use marks::{MarkConfig, MarkPlacement, MarkStyle};
-pub use nest::{bounds, nest as nest_jobs, NestOptions, NestResult, Placed};
+pub use nest::{NestOptions, NestResult, Placed, bounds, nest as nest_jobs};
 pub use offset::offset_closed;
-pub use profile::{
-    FlowControl, MachineProfile, Protocol, SerialSettings, ToolPreset,
-    USCUTTER_SC2_PROFILE_JSON,
-};
+pub use profile::{FlowControl, MachineProfile, Protocol, SerialSettings, ToolPreset, USCUTTER_SC2_PROFILE_JSON};
 pub use tile::{Tile, TileOptions};

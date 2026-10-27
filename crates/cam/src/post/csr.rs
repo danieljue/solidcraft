@@ -81,10 +81,7 @@ pub fn emit_with_pen(profile: &MachineProfile, toolpaths: &[Toolpath], pen: Pen)
             // end: on an arc those differ, and the chord would cut across the shape.
             let dir = first.start_tangent();
             if dir.len() > 1e-9 {
-                let over = Point::new(
-                    start.x + dir.x * profile.overcut_mm,
-                    start.y + dir.y * profile.overcut_mm,
-                );
+                let over = Point::new(start.x + dir.x * profile.overcut_mm, start.y + dir.y * profile.overcut_mm);
                 let (dx, dy) = ((over.x - cursor.x) * u, (over.y - cursor.y) * u);
                 match pen {
                     Pen::Down => {
@@ -135,65 +132,29 @@ mod tests {
         // is a delta of 20,0 — NOT the absolute 30,20.
         let tp = Toolpath {
             segments: vec![
-                Segment::Line {
-                    a: Point::new(10.0, 20.0),
-                    b: Point::new(30.0, 20.0),
-                },
-                Segment::Line {
-                    a: Point::new(30.0, 20.0),
-                    b: Point::new(30.0, 40.0),
-                },
+                Segment::Line { a: Point::new(10.0, 20.0), b: Point::new(30.0, 20.0) },
+                Segment::Line { a: Point::new(30.0, 20.0), b: Point::new(30.0, 40.0) },
             ],
             closed: false,
         };
         let out = emit(&csr_profile(), &[tp]);
-        assert!(
-            out.contains("R400,800;"),
-            "first move should be the delta from origin: {out}"
-        );
-        assert!(
-            out.contains("I800,0;"),
-            "first draw should be the delta 20mm in x: {out}"
-        );
-        assert!(
-            out.contains("I0,800;"),
-            "second draw should be the delta 20mm in y: {out}"
-        );
-        assert!(
-            !out.contains("I1200,800;"),
-            "must not emit absolute coordinates: {out}"
-        );
+        assert!(out.contains("R400,800;"), "first move should be the delta from origin: {out}");
+        assert!(out.contains("I800,0;"), "first draw should be the delta 20mm in x: {out}");
+        assert!(out.contains("I0,800;"), "second draw should be the delta 20mm in y: {out}");
+        assert!(!out.contains("I1200,800;"), "must not emit absolute coordinates: {out}");
     }
 
     #[test]
     fn empty_header_and_footer_by_default() {
-        let tp = Toolpath {
-            segments: vec![Segment::Line {
-                a: Point::new(0.0, 0.0),
-                b: Point::new(1.0, 0.0),
-            }],
-            closed: false,
-        };
+        let tp = Toolpath { segments: vec![Segment::Line { a: Point::new(0.0, 0.0), b: Point::new(1.0, 0.0) }], closed: false };
         let out = emit(&csr_profile(), &[tp]);
-        assert!(
-            out.starts_with('R'),
-            "no header, so the stream starts with the first move: {out}"
-        );
-        assert!(
-            out.ends_with("R0,0;"),
-            "job should end with a pen-up move, got: {out}"
-        );
+        assert!(out.starts_with('R'), "no header, so the stream starts with the first move: {out}");
+        assert!(out.ends_with("R0,0;"), "job should end with a pen-up move, got: {out}");
     }
 
     #[test]
     fn pen_up_uses_r_and_pen_down_uses_i() {
-        let tp = Toolpath {
-            segments: vec![Segment::Line {
-                a: Point::new(5.0, 0.0),
-                b: Point::new(15.0, 0.0),
-            }],
-            closed: false,
-        };
+        let tp = Toolpath { segments: vec![Segment::Line { a: Point::new(5.0, 0.0), b: Point::new(15.0, 0.0) }], closed: false };
         let down = emit(&csr_profile(), &[tp.clone()]);
         assert!(down.contains("I"), "pen down must draw with I");
         let up = emit_with_pen(&csr_profile(), &[tp], Pen::Up);
@@ -212,9 +173,6 @@ mod tests {
         let mut profile = csr_profile();
         profile.overcut_mm = 1.0;
         let out = emit(&profile, &[tp]);
-        assert!(
-            out.contains("I40,0;"),
-            "overcut should overshoot along the first segment: {out}"
-        );
+        assert!(out.contains("I40,0;"), "overcut should overshoot along the first segment: {out}");
     }
 }

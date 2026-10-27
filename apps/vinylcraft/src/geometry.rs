@@ -7,11 +7,11 @@
 //! Everything here is a free function so it can be unit-tested and reused without
 //! constructing a `VinylApp`.
 
+use eframe::egui;
 use solidcraft_cam::geom::{Point, Segment, Toolpath};
 use solidcraft_geom::Vec2;
 use solidcraft_io::Geom2;
-use solidcraft_sketch::{text_geometry, LinkGeom};
-use eframe::egui;
+use solidcraft_sketch::{LinkGeom, text_geometry};
 
 /// Convert plain polylines into cutter toolpaths: drop degenerate runs and mark a
 /// contour closed when its last point coincides with its first.
@@ -21,13 +21,7 @@ pub(crate) fn polylines_to_toolpaths(polys: &[Vec<Vec2>]) -> Vec<Toolpath> {
         .filter(|p| p.len() >= 2)
         .map(|p| {
             let closed = p.len() > 2 && (p[0] - p[p.len() - 1]).len() < 1e-6;
-            let segments = p
-                .windows(2)
-                .map(|w| Segment::Line {
-                    a: Point::new(w[0].x, w[0].y),
-                    b: Point::new(w[1].x, w[1].y),
-                })
-                .collect();
+            let segments = p.windows(2).map(|w| Segment::Line { a: Point::new(w[0].x, w[0].y), b: Point::new(w[1].x, w[1].y) }).collect();
             Toolpath { segments, closed }
         })
         .collect()
@@ -41,11 +35,7 @@ pub(crate) fn polylines_to_toolpaths(polys: &[Vec<Vec2>]) -> Vec<Toolpath> {
 /// a closed path gets its first point appended, and an open path gets its final end point
 /// appended to complete the last segment.
 pub(crate) fn toolpath_to_polyline(tp: &Toolpath) -> Vec<Vec2> {
-    let mut pts: Vec<Vec2> = tp
-        .segments
-        .iter()
-        .map(|s| Vec2::new(s.start().x, s.start().y))
-        .collect();
+    let mut pts: Vec<Vec2> = tp.segments.iter().map(|s| Vec2::new(s.start().x, s.start().y)).collect();
     if tp.closed {
         if let Some(first) = pts.first().copied() {
             pts.push(first);
@@ -65,12 +55,7 @@ pub(crate) fn rounded_rect_poly(w: f64, h: f64, r: f64, seg: usize) -> Vec<Vec2>
         (r, h - r),     // top-left
         (r, r),         // bottom-left
     ];
-    let starts = [
-        -std::f64::consts::FRAC_PI_2,
-        0.0,
-        std::f64::consts::FRAC_PI_2,
-        std::f64::consts::PI,
-    ];
+    let starts = [-std::f64::consts::FRAC_PI_2, 0.0, std::f64::consts::FRAC_PI_2, std::f64::consts::PI];
     let mut pts = Vec::with_capacity(4 * (seg + 1) + 1);
     for (i, (cx, cy)) in centers.iter().enumerate() {
         for k in 0..=seg {
@@ -163,10 +148,7 @@ pub(crate) fn flatten_all(shapes: &[Geom2]) -> Vec<Vec<Vec2>> {
 /// the cutter holds one colour at a time, so fused geometry would be cut in whichever colour
 /// happened to be loaded. This flushes the run whenever the colour changes and returns the
 /// colour of each finished run in a parallel vector.
-pub(crate) fn flatten_all_colored(
-    shapes: &[Geom2],
-    colors: &[Option<String>],
-) -> (Vec<Vec<Vec2>>, Vec<Option<String>>) {
+pub(crate) fn flatten_all_colored(shapes: &[Geom2], colors: &[Option<String>]) -> (Vec<Vec<Vec2>>, Vec<Option<String>>) {
     const JOIN_EPS: f64 = 1e-6;
     let mut out: Vec<Vec<Vec2>> = Vec::new();
     let mut out_colors: Vec<Option<String>> = Vec::new();
@@ -240,32 +222,10 @@ pub(crate) fn link_to_geom2(g: &LinkGeom) -> Geom2 {
         LinkGeom::Point(p) => Geom2::Point(*p),
         LinkGeom::Line(a, b) => Geom2::Line(*a, *b),
         LinkGeom::Circle(c, r) => Geom2::Circle(*c, *r),
-        LinkGeom::Arc { c, a, b } => Geom2::Arc {
-            c: *c,
-            a: *a,
-            b: *b,
-        },
-        LinkGeom::Conic { a, apex, b, rho } => Geom2::Conic {
-            a: *a,
-            apex: *apex,
-            b: *b,
-            rho: *rho,
-        },
-        LinkGeom::Ellipse { c, major, minor } => Geom2::Ellipse {
-            c: *c,
-            major: *major,
-            minor: *minor,
-        },
-        LinkGeom::Spline {
-            pts,
-            control,
-            degree,
-            ..
-        } => Geom2::Spline {
-            pts: pts.clone(),
-            control: *control,
-            degree: *degree,
-        },
+        LinkGeom::Arc { c, a, b } => Geom2::Arc { c: *c, a: *a, b: *b },
+        LinkGeom::Conic { a, apex, b, rho } => Geom2::Conic { a: *a, apex: *apex, b: *b, rho: *rho },
+        LinkGeom::Ellipse { c, major, minor } => Geom2::Ellipse { c: *c, major: *major, minor: *minor },
+        LinkGeom::Spline { pts, control, degree, .. } => Geom2::Spline { pts: pts.clone(), control: *control, degree: *degree },
     }
 }
 
@@ -334,7 +294,9 @@ pub(crate) fn flatten(g: &Geom2, out: &mut Vec<Vec<Vec2>>) {
                         v.push(catmull_rom(p0, p1, p2, p3, t));
                     }
                 }
-                v.push(*pts.last().unwrap());
+                if let Some(last) = pts.last() {
+                    v.push(*last);
+                }
                 out.push(v);
             }
         }
@@ -347,12 +309,7 @@ pub(crate) fn flatten(g: &Geom2, out: &mut Vec<Vec<Vec2>>) {
             }
             out.push(v);
         }
-        Geom2::Text {
-            text,
-            at,
-            height,
-            angle,
-        } => {
+        Geom2::Text { text, at, height, angle } => {
             // Resolve the string to glyph outlines with the sketch crate's font engine. A
             // glyph's outline and its counters (the holes in A, B, 8) arrive as separate chains,
             // so each is flattened as its own contour and the blade cuts the holes as separate
@@ -409,11 +366,7 @@ pub(crate) fn bbox_of(polys: &[Vec<Vec2>]) -> (Vec2, Vec2) {
             max.y = max.y.max(p.y);
         }
     }
-    if !min.is_finite() || !max.is_finite() {
-        (Vec2::ZERO, Vec2::ZERO)
-    } else {
-        (min, max)
-    }
+    if !min.is_finite() || !max.is_finite() { (Vec2::ZERO, Vec2::ZERO) } else { (min, max) }
 }
 
 /// Turn a colour label into something safe to use as part of a file name.
@@ -436,23 +389,13 @@ pub(crate) fn sanitize_filename(color: &str) -> String {
         }
     }
     let trimmed = out.trim_matches('_').to_string();
-    if trimmed.is_empty() {
-        "colour".into()
-    } else {
-        trimmed
-    }
+    if trimmed.is_empty() { "colour".into() } else { trimmed }
 }
 
 pub(crate) fn mm_to_screen(p: Vec2, rect: egui::Rect, pan: egui::Vec2, zoom: f32) -> egui::Pos2 {
-    egui::pos2(
-        rect.left() + pan.x + p.x as f32 * zoom,
-        rect.top() + pan.y - p.y as f32 * zoom,
-    )
+    egui::pos2(rect.left() + pan.x + p.x as f32 * zoom, rect.top() + pan.y - p.y as f32 * zoom)
 }
 
 pub(crate) fn screen_to_mm(p: egui::Pos2, rect: egui::Rect, pan: egui::Vec2, zoom: f32) -> Vec2 {
-    Vec2::new(
-        ((p.x - rect.left() - pan.x) / zoom) as f64,
-        ((rect.top() + pan.y - p.y) / zoom) as f64,
-    )
+    Vec2::new(((p.x - rect.left() - pan.x) / zoom) as f64, ((rect.top() + pan.y - p.y) / zoom) as f64)
 }

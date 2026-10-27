@@ -127,9 +127,7 @@ impl MachineProfile {
     /// profile written "60 degree blade" still matches "60 Degree Blade".
     pub fn active_preset(&self) -> Option<&ToolPreset> {
         let name = self.active_tool.as_ref()?;
-        self.tool_presets
-            .iter()
-            .find(|p| p.name.eq_ignore_ascii_case(name))
+        self.tool_presets.iter().find(|p| p.name.eq_ignore_ascii_case(name))
     }
 
     /// Downforce that will actually be sent. The active preset wins; a preset value
@@ -173,11 +171,8 @@ impl MachineProfile {
     /// to its defaults and would wipe anything sent before it.
     pub fn setup_commands(&self) -> String {
         let mut out = String::new();
-        for (tpl, val) in [
-            (&self.force_cmd, self.effective_force()),
-            (&self.speed_cmd, self.effective_speed()),
-            (&self.up_speed_cmd, self.up_speed),
-        ] {
+        for (tpl, val) in [(&self.force_cmd, self.effective_force()), (&self.speed_cmd, self.effective_speed()), (&self.up_speed_cmd, self.up_speed)]
+        {
             if let (Some(t), Some(v)) = (tpl, val) {
                 // Zero means "do not send": a pen tool must not be driven down with a
                 // cutting force, and a cutter ignores `!FS0;` on some firmware.
@@ -277,16 +272,11 @@ mod tests {
     /// asserting the values we depend on catches that at build time.
     #[test]
     fn shipped_profiles_parse_and_keep_their_essentials() {
-        let hpgl: MachineProfile =
-            serde_json::from_str(include_str!("../profiles/hpgl.json")).expect("hpgl.json parses");
+        let hpgl: MachineProfile = serde_json::from_str(include_str!("../profiles/hpgl.json")).expect("hpgl.json parses");
         assert_eq!(hpgl.protocol, Protocol::Hpgl);
         // A wrong key name here would leave the default 0.0 in place and the profile
         // would emit every coordinate at the origin.
-        assert!(
-            (hpgl.units_per_mm - 40.0).abs() < 1e-9,
-            "units_per_mm must survive parsing, got {}",
-            hpgl.units_per_mm
-        );
+        assert!((hpgl.units_per_mm - 40.0).abs() < 1e-9, "units_per_mm must survive parsing, got {}", hpgl.units_per_mm);
         // An empty header means no absolute-mode init; an empty footer means the
         // machine never feeds the material out.
         assert!(!hpgl.header.is_empty(), "hpgl profile needs a header");
@@ -295,62 +285,31 @@ mod tests {
         // RDGL is HPGL with a Roland-specific init prefix. The protocol stays Hpgl because
         // the move and draw command forms are identical; only the header differs. The header
         // must carry the vendor's escape sequence, or the controller ignores the job.
-        let rdgl: MachineProfile =
-            serde_json::from_str(include_str!("../profiles/rdgl.json")).expect("rdgl.json parses");
+        let rdgl: MachineProfile = serde_json::from_str(include_str!("../profiles/rdgl.json")).expect("rdgl.json parses");
         assert_eq!(rdgl.protocol, Protocol::Hpgl);
-        assert!(
-            rdgl.header.contains("/e/50A"),
-            "RDGL header must keep the vendor init prefix, got {:?}",
-            rdgl.header
-        );
+        assert!(rdgl.header.contains("/e/50A"), "RDGL header must keep the vendor init prefix, got {:?}", rdgl.header);
         assert!(!rdgl.footer.is_empty(), "rdgl profile needs a footer");
 
         // CSR is relative-only. Its header and footer are legitimately empty in the vendor
         // definition, so this one asserts the opposite of the absolute protocols: nothing is
         // allowed to prefix or suffix the stream. A header added here would be sent before
         // the first relative move and most controllers would reject it.
-        let csr: MachineProfile =
-            serde_json::from_str(include_str!("../profiles/csr.json")).expect("csr.json parses");
+        let csr: MachineProfile = serde_json::from_str(include_str!("../profiles/csr.json")).expect("csr.json parses");
         assert_eq!(csr.protocol, Protocol::Csr);
-        assert!(
-            csr.header.is_empty(),
-            "CSR declares no header; a prefix would be rejected: {:?}",
-            csr.header
-        );
-        assert!(
-            csr.footer.is_empty(),
-            "CSR declares no footer; a suffix would be rejected: {:?}",
-            csr.footer
-        );
-        assert!(
-            (csr.units_per_mm - 40.0).abs() < 1e-9,
-            "CSR units_per_mm must survive parsing, got {}",
-            csr.units_per_mm
-        );
+        assert!(csr.header.is_empty(), "CSR declares no header; a prefix would be rejected: {:?}", csr.header);
+        assert!(csr.footer.is_empty(), "CSR declares no footer; a suffix would be rejected: {:?}", csr.footer);
+        assert!((csr.units_per_mm - 40.0).abs() < 1e-9, "CSR units_per_mm must survive parsing, got {}", csr.units_per_mm);
     }
 
     #[test]
     fn sc2_profile_parses_with_its_tool_presets() {
-        let sc2: MachineProfile = serde_json::from_str(include_str!(
-            "../profiles/uscutter_sc2.json"
-        ))
-        .expect("uscutter_sc2.json parses");
+        let sc2: MachineProfile = serde_json::from_str(include_str!("../profiles/uscutter_sc2.json")).expect("uscutter_sc2.json parses");
         assert_eq!(sc2.protocol, Protocol::Dmpl);
-        assert!(
-            !sc2.tool_presets.is_empty(),
-            "the SC2 profile should carry its blade presets"
-        );
+        assert!(!sc2.tool_presets.is_empty(), "the SC2 profile should carry its blade presets");
         // The active tool must actually resolve, or the flat values silently win and
         // the operator's chosen blade is ignored.
-        assert!(
-            sc2.active_preset().is_some(),
-            "active_tool '{}' should match a preset",
-            sc2.active_tool.as_deref().unwrap_or("<none>")
-        );
+        assert!(sc2.active_preset().is_some(), "active_tool '{}' should match a preset", sc2.active_tool.as_deref().unwrap_or("<none>"));
         // A drag knife needs a non-zero trail; 0 means the blade is assumed centred.
-        assert!(
-            sc2.effective_blade_offset_mm() > 0.0,
-            "an active drag-knife preset should produce a non-zero offset"
-        );
+        assert!(sc2.effective_blade_offset_mm() > 0.0, "an active drag-knife preset should produce a non-zero offset");
     }
 }

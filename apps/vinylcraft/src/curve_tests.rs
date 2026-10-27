@@ -7,9 +7,9 @@
 //! crate alone would have to fake the other half.
 
 use solidcraft_cam::geom::Toolpath;
-use solidcraft_cam::post::{dmpl, gcode, Pen};
+use solidcraft_cam::post::{Pen, dmpl, gcode};
 use solidcraft_cam::profile::{MachineProfile, Protocol};
-use solidcraft_io::{read_svg, Geom2};
+use solidcraft_io::{Geom2, read_svg};
 
 const SVG: &str = r#"<svg xmlns="http://www.w3.org/2000/svg" width="40mm" height="40mm" viewBox="0 0 40 40">
   <path d="M 30 20 A 10 10 0 0 1 20 30" fill="none"/>
@@ -38,10 +38,7 @@ fn toolpaths() -> Vec<Toolpath> {
             if segments.is_empty() {
                 return None;
             }
-            Some(Toolpath {
-                segments,
-                closed: matches!(g, Geom2::Circle(..)),
-            })
+            Some(Toolpath { segments, closed: matches!(g, Geom2::Circle(..)) })
         })
         .collect()
 }
@@ -51,20 +48,14 @@ fn an_svg_arc_reaches_gcode_as_an_arc() {
     let out = gcode::emit(&profile(Protocol::Gcode), &toolpaths());
     // One quarter arc from the path, two half arcs from the circle.
     assert_eq!(out.matches("G3 ").count(), 3, "expected three arcs in:\n{out}");
-    assert!(
-        !out.contains("G1 "),
-        "nothing should be flattened for a controller that has G2/G3:\n{out}"
-    );
+    assert!(!out.contains("G1 "), "nothing should be flattened for a controller that has G2/G3:\n{out}");
 }
 
 #[test]
 fn the_same_toolpaths_flatten_for_a_dialect_without_arcs() {
     let out = profile(Protocol::Dmpl);
     let text = dmpl::emit_with_pen(&out, &toolpaths(), Pen::Down);
-    assert!(
-        !text.contains("AA"),
-        "DM/PL has no arc word, so none may appear:\n{text}"
-    );
+    assert!(!text.contains("AA"), "DM/PL has no arc word, so none may appear:\n{text}");
     // Two half circles plus a quarter arc: a real curve needs many chords, so if the arcs
     // had collapsed to their endpoints there would be only a handful of draws.
     let draws = text.matches('D').count();

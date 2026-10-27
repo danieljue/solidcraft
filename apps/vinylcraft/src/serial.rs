@@ -80,11 +80,7 @@ pub(crate) fn scan_ports() -> Vec<PortChoice> {
                     SerialPortType::PciPort => (None, "PCI serial".into()),
                     SerialPortType::Unknown => (None, "unknown".into()),
                 };
-                PortChoice {
-                    name: p.port_name,
-                    usb,
-                    label,
-                }
+                PortChoice { name: p.port_name, usb, label }
             })
             .collect(),
         Err(_) => Vec::new(),
@@ -108,12 +104,7 @@ pub(crate) fn write_serial(port_name: &str, baud: u32, bytes: &[u8]) -> Result<(
 /// stream stops the carriage once that buffer drains. That is the only pause a write-only
 /// protocol offers: there is no pause command in DMPL to send. Chunking also keeps a long
 /// contour from being pushed into a small buffer in one blocking write.
-pub(crate) fn write_serial_ctl(
-    port_name: &str,
-    baud: u32,
-    bytes: &[u8],
-    ctl: Option<&Arc<SendControl>>,
-) -> Result<(usize, String), String> {
+pub(crate) fn write_serial_ctl(port_name: &str, baud: u32, bytes: &[u8], ctl: Option<&Arc<SendControl>>) -> Result<(usize, String), String> {
     use serialport::FlowControl;
     // Many vinyl cutters are 3-wire (TX/RX/GND) and never drive CTS. With hardware flow
     // control the driver buffers the whole job and then waits for a clear-to-send that never
@@ -125,8 +116,7 @@ pub(crate) fn write_serial_ctl(
     // already left the cable and cut part of the job twice.
     let mut port = match open_port(port_name, baud, FlowControl::Hardware) {
         Ok(p) => p,
-        Err(first) => open_port(port_name, baud, FlowControl::None)
-            .map_err(|e| format!("{first}; without handshake: {e}"))?,
+        Err(first) => open_port(port_name, baud, FlowControl::None).map_err(|e| format!("{first}; without handshake: {e}"))?,
     };
     let mut sent = 0usize;
     for chunk in bytes.chunks(64) {
@@ -148,8 +138,7 @@ pub(crate) fn write_serial_ctl(
     // Long jobs are paced by hardware flow control; this is a courtesy pause so short
     // commands reach the wire before we start listening for an answer.
     std::thread::sleep(Duration::from_millis(250));
-    port.set_timeout(Duration::from_millis(400))
-        .map_err(|e| e.to_string())?;
+    port.set_timeout(Duration::from_millis(400)).map_err(|e| e.to_string())?;
     let mut reply = Vec::new();
     let mut buf = [0u8; 256];
     let deadline = std::time::Instant::now() + Duration::from_millis(600);
@@ -172,11 +161,7 @@ pub(crate) fn write_serial_ctl(
 
 /// Open the port with a given handshake. Separated from writing so the fallback can change
 /// handshake without touching bytes that may already be on the wire.
-pub(crate) fn open_port(
-    port_name: &str,
-    baud: u32,
-    flow: serialport::FlowControl,
-) -> Result<Box<dyn serialport::SerialPort>, String> {
+pub(crate) fn open_port(port_name: &str, baud: u32, flow: serialport::FlowControl) -> Result<Box<dyn serialport::SerialPort>, String> {
     use serialport::{DataBits, Parity, StopBits};
     serialport::new(port_name, baud)
         .data_bits(DataBits::Eight)

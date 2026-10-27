@@ -52,14 +52,7 @@ impl Tf {
             return None;
         }
         let inv = 1.0 / det;
-        Some(Tf([
-            d * inv,
-            -b * inv,
-            -c * inv,
-            a * inv,
-            (c * f - d * e) * inv,
-            (b * e - a * f) * inv,
-        ]))
+        Some(Tf([d * inv, -b * inv, -c * inv, a * inv, (c * f - d * e) * inv, (b * e - a * f) * inv]))
     }
     fn is_finite(self) -> bool {
         self.0.iter().all(|x| x.is_finite())
@@ -94,39 +87,17 @@ fn reapply(g: Geom2, tf: Tf) -> Geom2 {
             let s = tf.uniform().unwrap_or(1.0).abs();
             Geom2::Circle(tf.apply(c), r * s)
         }
-        Geom2::Arc { c, a, b } => Geom2::Arc {
-            c: tf.apply(c),
-            a: tf.apply(a),
-            b: tf.apply(b),
-        },
+        Geom2::Arc { c, a, b } => Geom2::Arc { c: tf.apply(c), a: tf.apply(a), b: tf.apply(b) },
         Geom2::Ellipse { c, major, minor } => {
             let s = tf.uniform().unwrap_or(1.0).abs();
-            Geom2::Ellipse {
-                c: tf.apply(c),
-                major: tf.apply(major),
-                minor: minor * s,
-            }
+            Geom2::Ellipse { c: tf.apply(c), major: tf.apply(major), minor: minor * s }
         }
-        Geom2::Spline { pts, control, degree } => Geom2::Spline {
-            pts: pts.iter().map(|p| tf.apply(*p)).collect(),
-            control,
-            degree,
-        },
-        Geom2::Conic { a, apex, b, rho } => Geom2::Conic {
-            a: tf.apply(a),
-            apex: tf.apply(apex),
-            b: tf.apply(b),
-            rho,
-        },
+        Geom2::Spline { pts, control, degree } => Geom2::Spline { pts: pts.iter().map(|p| tf.apply(*p)).collect(), control, degree },
+        Geom2::Conic { a, apex, b, rho } => Geom2::Conic { a: tf.apply(a), apex: tf.apply(apex), b: tf.apply(b), rho },
         Geom2::Text { text, at, height, angle } => {
             let s = tf.uniform().unwrap_or(1.0).abs();
             let dir = tf.vec(Vec2::new(angle.cos(), angle.sin()));
-            Geom2::Text {
-                text,
-                at: tf.apply(at),
-                height: height * s,
-                angle: dir.angle(),
-            }
+            Geom2::Text { text, at: tf.apply(at), height: height * s, angle: dir.angle() }
         }
     }
 }
@@ -539,10 +510,7 @@ fn read_svg_inner(text: &str) -> Result<(Vec<Geom2>, Vec<Option<String>>)> {
                 // identified element outside a container both renders in place and serves as
                 // a `<use>` target, so its geometry stays.
                 if let Some((_, Some((id, mark, tf)))) = marks.pop() {
-                    defs.insert(
-                        id,
-                        (tf, out.g[mark..].to_vec(), out.colors[mark..].to_vec()),
-                    );
+                    defs.insert(id, (tf, out.g[mark..].to_vec(), out.colors[mark..].to_vec()));
                     if defs_depth > 0 {
                         out.truncate(mark);
                     }
@@ -706,10 +674,7 @@ fn read_svg_inner(text: &str) -> Result<(Vec<Geom2>, Vec<Option<String>>)> {
         // An Empty element inside a definition has no End event, so capture it now.
         if empty {
             if let Some((id, mark, tf)) = capture {
-                defs.insert(
-                    id,
-                    (tf, out.g[mark..].to_vec(), out.colors[mark..].to_vec()),
-                );
+                defs.insert(id, (tf, out.g[mark..].to_vec(), out.colors[mark..].to_vec()));
                 // Hide the geometry only when this element is a definition. An identified
                 // element outside `<defs>` renders in place and is merely *also* a target.
                 if defs_depth > 0 {
@@ -737,9 +702,7 @@ fn read_svg_inner(text: &str) -> Result<(Vec<Geom2>, Vec<Option<String>>)> {
         let Some((def_tf, geom, colors)) = defs.get(&id) else {
             // A dangling `#id` is a broken document. Failing loudly beats loading an empty
             // design the operator might then send to the cutter as a blank job.
-            return Err(IoError::Invalid(format!(
-                "SVG: <use> refers to a missing definition '#{id}'"
-            )));
+            return Err(IoError::Invalid(format!("SVG: <use> refers to a missing definition '#{id}'")));
         };
         let delta = def_tf.inverse().map(|inv| site.mul(inv));
         for (g, c) in geom.iter().zip(colors.iter()) {
@@ -763,11 +726,7 @@ fn read_svg_inner(text: &str) -> Result<(Vec<Geom2>, Vec<Option<String>>)> {
 fn colour_of(a: &[(String, String)]) -> Option<String> {
     fn usable(v: &str) -> Option<String> {
         let v = v.trim();
-        if v.is_empty() || v.eq_ignore_ascii_case("none") || v.eq_ignore_ascii_case("transparent") {
-            None
-        } else {
-            Some(v.to_string())
-        }
+        if v.is_empty() || v.eq_ignore_ascii_case("none") || v.eq_ignore_ascii_case("transparent") { None } else { Some(v.to_string()) }
     }
     if let Some(s) = attr(a, "stroke").and_then(usable) {
         return Some(s);
@@ -877,7 +836,8 @@ mod tests {
     /// instead of handing the sketch an infinite curve (solidcraft#5020).
     #[test]
     fn geometry_scaled_to_infinity_is_refused() {
-        let doc = |body: &str| format!(r###"<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100" width="100mm" height="100mm">{body}</svg>"###);
+        let doc =
+            |body: &str| format!(r###"<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100" width="100mm" height="100mm">{body}</svg>"###);
         for body in [
             r###"<g transform="scale(1e308)"><circle r="5"/></g>"###,
             r###"<g transform="scale(1e308)"><g transform="scale(1e308)"></g></g>"###,
@@ -930,40 +890,24 @@ mod tests {
     /// exactly where the same shape written inline would.
     #[test]
     fn use_replays_definition_in_place() {
-        let g = read_svg(&doc_50(
-            r###"<defs><rect id="a" x="0" y="0" width="10" height="10"/></defs><use href="#a"/>"###,
-        ))
-        .unwrap();
+        let g = read_svg(&doc_50(r###"<defs><rect id="a" x="0" y="0" width="10" height="10"/></defs><use href="#a"/>"###)).unwrap();
         // y is flipped: SVG y 0..10 becomes mm y 0..-10.
-        assert_eq!(
-            line_pairs(&g),
-            vec![((0, -10), (0, 0)), ((0, -10), (10, -10)), ((0, 0), (10, 0)), ((10, -10), (10, 0))],
-            "{g:?}"
-        );
+        assert_eq!(line_pairs(&g), vec![((0, -10), (0, 0)), ((0, -10), (10, -10)), ((0, 0), (10, 0)), ((10, -10), (10, 0))], "{g:?}");
     }
 
     /// The use's `x`/`y` shift the instance. In a y-down document an SVG y offset moves the
     /// shape down, which is -y in millimetres after the import flip.
     #[test]
     fn use_x_y_offsets_place_the_instance() {
-        let g = read_svg(&doc_50(
-            r###"<defs><rect id="a" x="0" y="0" width="10" height="10"/></defs><use href="#a" x="5" y="5"/>"###,
-        ))
-        .unwrap();
-        assert_eq!(
-            line_pairs(&g),
-            vec![((5, -15), (5, -5)), ((5, -15), (15, -15)), ((5, -5), (15, -5)), ((15, -15), (15, -5))],
-            "{g:?}"
-        );
+        let g = read_svg(&doc_50(r###"<defs><rect id="a" x="0" y="0" width="10" height="10"/></defs><use href="#a" x="5" y="5"/>"###)).unwrap();
+        assert_eq!(line_pairs(&g), vec![((5, -15), (5, -5)), ((5, -15), (15, -15)), ((5, -5), (15, -5)), ((15, -15), (15, -5))], "{g:?}");
     }
 
     /// Two uses of one definition produce two instances, and the y offset separates them.
     #[test]
     fn two_uses_of_one_definition_produce_two_instances() {
-        let g = read_svg(&doc_50(
-            r###"<defs><rect id="a" x="0" y="0" width="10" height="10"/></defs><use href="#a"/><use href="#a" y="20"/>"###,
-        ))
-        .unwrap();
+        let g = read_svg(&doc_50(r###"<defs><rect id="a" x="0" y="0" width="10" height="10"/></defs><use href="#a"/><use href="#a" y="20"/>"###))
+            .unwrap();
         assert_eq!(g.len(), 8, "expected two four-line rectangles: {g:?}");
         let ys: Vec<f64> = g
             .iter()
@@ -972,10 +916,7 @@ mod tests {
                 _ => None,
             })
             .collect();
-        let (lo, hi) = (
-            ys.iter().cloned().fold(f64::INFINITY, f64::min),
-            ys.iter().cloned().fold(f64::NEG_INFINITY, f64::max),
-        );
+        let (lo, hi) = (ys.iter().cloned().fold(f64::INFINITY, f64::min), ys.iter().cloned().fold(f64::NEG_INFINITY, f64::max));
         // 0..-10 and -20..-30 -> a 30 mm span, not overlapping.
         assert!((hi - lo - 30.0).abs() < 1e-9, "instances not offset: y {lo}..{hi}");
     }
@@ -983,30 +924,22 @@ mod tests {
     /// A `<g id>` inside `<defs>` is captured as a whole, not just its children.
     #[test]
     fn grouped_definition_is_captured() {
-        let g = read_svg(&doc_50(
-            r###"<defs><g id="grp"><rect x="0" y="0" width="10" height="10"/></g></defs><use href="#grp"/>"###,
-        ))
-        .unwrap();
+        let g = read_svg(&doc_50(r###"<defs><g id="grp"><rect x="0" y="0" width="10" height="10"/></g></defs><use href="#grp"/>"###)).unwrap();
         assert_eq!(g.len(), 4, "grouped definition not replayed: {g:?}");
     }
 
     /// A `<symbol id>` is both a container and a usable definition.
     #[test]
     fn symbol_definition_is_captured() {
-        let g = read_svg(&doc_50(
-            r###"<defs><symbol id="sym"><rect x="0" y="0" width="10" height="10"/></symbol></defs><use href="#sym"/>"###,
-        ))
-        .unwrap();
+        let g =
+            read_svg(&doc_50(r###"<defs><symbol id="sym"><rect x="0" y="0" width="10" height="10"/></symbol></defs><use href="#sym"/>"###)).unwrap();
         assert_eq!(g.len(), 4, "symbol definition not replayed: {g:?}");
     }
 
     /// A use may appear before its definition; it resolves after the document is read.
     #[test]
     fn forward_reference_resolves() {
-        let g = read_svg(&doc_50(
-            r###"<use href="#late"/><defs><rect id="late" x="0" y="0" width="10" height="10"/></defs>"###,
-        ))
-        .unwrap();
+        let g = read_svg(&doc_50(r###"<use href="#late"/><defs><rect id="late" x="0" y="0" width="10" height="10"/></defs>"###)).unwrap();
         assert_eq!(g.len(), 4, "forward-referenced definition not replayed: {g:?}");
     }
 
@@ -1031,10 +964,7 @@ mod tests {
     /// `xlink:href` is the pre-SVG2 spelling and still appears in Inkscape output.
     #[test]
     fn xlink_href_is_accepted() {
-        let g = read_svg(&doc_50(
-            r###"<defs><rect id="a" x="0" y="0" width="10" height="10"/></defs><use xlink:href="#a"/>"###,
-        ))
-        .unwrap();
+        let g = read_svg(&doc_50(r###"<defs><rect id="a" x="0" y="0" width="10" height="10"/></defs><use xlink:href="#a"/>"###)).unwrap();
         assert_eq!(g.len(), 4, "xlink:href use not replayed: {g:?}");
     }
 
@@ -1048,21 +978,14 @@ mod tests {
                  <circle cx="30" cy="10" r="4" fill="#0000ff"/>"###,
         );
         let (geometry, colors) = read_svg_colored(&doc).unwrap();
-        assert_eq!(
-            geometry.len(),
-            colors.len(),
-            "geometry and colour vectors must stay parallel"
-        );
+        assert_eq!(geometry.len(), colors.len(), "geometry and colour vectors must stay parallel");
         // The rect's four lines inherit the group's red stroke.
         for (g, c) in geometry.iter().zip(colors.iter()).take(4) {
             assert!(matches!(g, Geom2::Line(..)), "{g:?}");
             assert_eq!(c.as_deref(), Some("#ff0000"), "rect line lost its inherited stroke");
         }
         // The circle carries its own fill, and inherits nothing from the group.
-        let i = geometry
-            .iter()
-            .position(|g| matches!(g, Geom2::Circle(..)))
-            .expect("circle missing");
+        let i = geometry.iter().position(|g| matches!(g, Geom2::Circle(..))).expect("circle missing");
         assert_eq!(colors[i].as_deref(), Some("#0000ff"), "circle lost its fill colour");
     }
 
@@ -1082,9 +1005,7 @@ mod tests {
     /// attributes. Illustrator and Inkscape both emit style strings.
     #[test]
     fn inline_style_is_read() {
-        let doc = doc_50(
-            r###"<rect x="0" y="0" width="10" height="10" style="fill:none;stroke:#00ff00"/>"###,
-        );
+        let doc = doc_50(r###"<rect x="0" y="0" width="10" height="10" style="fill:none;stroke:#00ff00"/>"###);
         let (geometry, colors) = read_svg_colored(&doc).unwrap();
         assert_eq!(geometry.len(), 4);
         for c in &colors {
@@ -1098,19 +1019,14 @@ mod tests {
     fn none_is_not_a_colour() {
         let doc = doc_50(r###"<rect x="0" y="0" width="10" height="10" stroke="none"/>"###);
         let (_, colors) = read_svg_colored(&doc).unwrap();
-        assert!(
-            colors.iter().all(|c| c.is_none()),
-            "none leaked as a colour: {colors:?}"
-        );
+        assert!(colors.iter().all(|c| c.is_none()), "none leaked as a colour: {colors:?}");
     }
 
     /// A definition drawn in one colour stays that colour wherever a `<use>` replays it. Losing
     /// this would attribute a red symbol to whatever colour the use site inherits.
     #[test]
     fn use_keeps_definition_colour() {
-        let doc = doc_50(
-            r###"<defs><rect id="a" x="0" y="0" width="10" height="10" stroke="#123456"/></defs><use href="#a"/>"###,
-        );
+        let doc = doc_50(r###"<defs><rect id="a" x="0" y="0" width="10" height="10" stroke="#123456"/></defs><use href="#a"/>"###);
         let (geometry, colors) = read_svg_colored(&doc).unwrap();
         assert_eq!(geometry.len(), 4, "definition not replayed");
         for c in &colors {

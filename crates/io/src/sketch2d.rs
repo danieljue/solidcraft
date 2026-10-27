@@ -69,7 +69,6 @@ pub(crate) fn bulge_arc(p0: Vec2, p1: Vec2, b: f64) -> Option<Geom2> {
     Some(if b > 0.0 { Geom2::Arc { c, a: p0, b: p1 } } else { Geom2::Arc { c, a: p1, b: p0 } })
 }
 
-
 /// Control-point factor that approximates a quarter circle with one cubic Bézier to
 /// within about 0.02% of the radius.
 const KAPPA: f64 = 0.552_284_749_830_793_4;
@@ -131,20 +130,10 @@ impl Geom2 {
                 ];
                 quads
                     .iter()
-                    .map(|&(x0, y0, x1, y1, x2, y2, x3, y3)| Seg2::Cubic {
-                        p0: at(x0, y0),
-                        p1: at(x1, y1),
-                        p2: at(x2, y2),
-                        p3: at(x3, y3),
-                    })
+                    .map(|&(x0, y0, x1, y1, x2, y2, x3, y3)| Seg2::Cubic { p0: at(x0, y0), p1: at(x1, y1), p2: at(x2, y2), p3: at(x3, y3) })
                     .collect()
             }
-            Geom2::Conic { a, apex, b, rho } => vec![Seg2::Conic {
-                a: *a,
-                apex: *apex,
-                b: *b,
-                w: *rho,
-            }],
+            Geom2::Conic { a, apex, b, rho } => vec![Seg2::Conic { a: *a, apex: *apex, b: *b, w: *rho }],
             Geom2::Point(_) | Geom2::Spline { .. } | Geom2::Text { .. } => Vec::new(),
         }
     }
@@ -165,11 +154,7 @@ mod to_segments_tests {
 
     #[test]
     fn a_quarter_arc_keeps_its_sweep_and_endpoints() {
-        let g = Geom2::Arc {
-            c: Vec2::ZERO,
-            a: Vec2::new(10.0, 0.0),
-            b: Vec2::new(0.0, 10.0),
-        };
+        let g = Geom2::Arc { c: Vec2::ZERO, a: Vec2::new(10.0, 0.0), b: Vec2::new(0.0, 10.0) };
         let s = g.to_segments();
         assert_eq!(s.len(), 1);
         match s[0] {
@@ -199,22 +184,13 @@ mod to_segments_tests {
         assert!(matches!(l[0], Seg2::Line { .. }));
         assert!((l[0].length() - 5.0).abs() < 1e-12);
 
-        let c = Geom2::Conic {
-            a: Vec2::ZERO,
-            apex: Vec2::new(1.0, 1.0),
-            b: Vec2::new(2.0, 0.0),
-            rho: 0.7,
-        };
+        let c = Geom2::Conic { a: Vec2::ZERO, apex: Vec2::new(1.0, 1.0), b: Vec2::new(2.0, 0.0), rho: 0.7 };
         assert!(matches!(c.to_segments()[0], Seg2::Conic { .. }));
     }
 
     #[test]
     fn an_ellipse_becomes_four_cubics_that_close_and_stay_on_the_curve() {
-        let g = Geom2::Ellipse {
-            c: Vec2::new(10.0, 10.0),
-            major: Vec2::new(30.0, 10.0),
-            minor: 6.0,
-        };
+        let g = Geom2::Ellipse { c: Vec2::new(10.0, 10.0), major: Vec2::new(30.0, 10.0), minor: 6.0 };
         let s = g.to_segments();
         assert_eq!(s.len(), 4);
         for i in 0..4 {
@@ -229,12 +205,7 @@ mod to_segments_tests {
 
     #[test]
     fn text_returns_nothing_so_the_caller_can_flatten_it_itself() {
-        let t = Geom2::Text {
-            text: "A".into(),
-            at: Vec2::ZERO,
-            height: 5.0,
-            angle: 0.0,
-        };
+        let t = Geom2::Text { text: "A".into(), at: Vec2::ZERO, height: 5.0, angle: 0.0 };
         assert!(t.to_segments().is_empty());
     }
 }

@@ -21,11 +21,7 @@ fn dist(a: Point, b: Point) -> f64 {
 /// Unit vector from `a` toward `b`. `None` for a degenerate segment.
 fn unit(a: Point, b: Point) -> Option<(f64, f64)> {
     let d = dist(a, b);
-    if d < 1e-12 {
-        None
-    } else {
-        Some(((b.x - a.x) / d, (b.y - a.y) / d))
-    }
+    if d < 1e-12 { None } else { Some(((b.x - a.x) / d, (b.y - a.y) / d)) }
 }
 
 fn path_points(tp: &Toolpath) -> Vec<Point> {
@@ -40,19 +36,8 @@ fn path_points(tp: &Toolpath) -> Vec<Point> {
 }
 
 fn reversed(tp: &Toolpath) -> Toolpath {
-    let segments = tp
-        .segments
-        .iter()
-        .rev()
-        .map(|s| Segment::Line {
-            a: s.end(),
-            b: s.start(),
-        })
-        .collect();
-    Toolpath {
-        segments,
-        closed: tp.closed,
-    }
+    let segments = tp.segments.iter().rev().map(|s| Segment::Line { a: s.end(), b: s.start() }).collect();
+    Toolpath { segments, closed: tp.closed }
 }
 
 fn total_length(pts: &[Point]) -> f64 {
@@ -76,30 +61,23 @@ pub fn min_line(toolpaths: Vec<Toolpath>, min_mm: f64) -> Vec<Toolpath> {
             let mut kept: Vec<Point> = Vec::with_capacity(pts.len());
             kept.push(pts[0]);
             for p in &pts[1..pts.len() - 1] {
-                if dist(*kept.last().unwrap(), *p) >= min_mm {
+                let gap = kept.last().map_or(0.0, |k| dist(*k, *p));
+                if gap >= min_mm {
                     kept.push(*p);
                 }
             }
             // Always keep the endpoint: a closed contour must stay closed and an open one
             // must keep the point the user designed.
-            let last = *pts.last().unwrap();
-            if dist(*kept.last().unwrap(), last) >= min_mm || tp.closed {
+            let Some(&last) = pts.last() else { return None };
+            let gap = kept.last().map_or(0.0, |k| dist(*k, last));
+            if gap >= min_mm || tp.closed {
                 kept.push(last);
             }
             if kept.len() < 2 || total_length(&kept) < min_mm {
                 return None;
             }
-            let closed = tp.closed && dist(kept[0], *kept.last().unwrap()) < 1e-6;
-            Some(Toolpath {
-                segments: kept
-                    .windows(2)
-                    .map(|w| Segment::Line {
-                        a: w[0],
-                        b: w[1],
-                    })
-                    .collect(),
-                closed,
-            })
+            let closed = tp.closed && kept.first().zip(kept.last()).is_some_and(|(f, l)| dist(*f, *l) < 1e-6);
+            Some(Toolpath { segments: kept.windows(2).map(|w| Segment::Line { a: w[0], b: w[1] }).collect(), closed })
         })
         .collect()
 }
@@ -113,16 +91,13 @@ pub fn linemerge(toolpaths: Vec<Toolpath>, tol_mm: f64) -> Vec<Toolpath> {
     }
     let mut pool: Vec<Option<Toolpath>> = toolpaths.into_iter().map(Some).collect();
     // A closed contour is finished: do not chain anything onto it.
-    let mut done: Vec<bool> = pool
-        .iter()
-        .map(|tp| tp.as_ref().map_or(true, |t| t.closed))
-        .collect();
+    let mut done: Vec<bool> = pool.iter().map(|tp| tp.as_ref().map_or(true, |t| t.closed)).collect();
     let mut out: Vec<Toolpath> = Vec::new();
     for i in 0..pool.len() {
         if done[i] {
             continue;
         }
-        let mut chain = pool[i].take().unwrap();
+        let Some(mut chain) = pool[i].take() else { continue };
         done[i] = true;
         loop {
             let Some(tail) = chain.segments.last().map(|s| s.end()) else {
@@ -150,7 +125,7 @@ pub fn linemerge(toolpaths: Vec<Toolpath>, tol_mm: f64) -> Vec<Toolpath> {
             }
             match found {
                 Some((j, reverse)) => {
-                    let mut cand = pool[j].take().unwrap();
+                    let Some(mut cand) = pool[j].take() else { break };
                     done[j] = true;
                     if reverse {
                         cand = reversed(&cand);
@@ -163,11 +138,7 @@ pub fn linemerge(toolpaths: Vec<Toolpath>, tol_mm: f64) -> Vec<Toolpath> {
                         (Some(last_seg), Some(first)) => {
                             let end = last_seg.end();
                             let begin = first.start();
-                            if dist(end, begin) > 1e-9 {
-                                Some((end, begin))
-                            } else {
-                                None
-                            }
+                            if dist(end, begin) > 1e-9 { Some((end, begin)) } else { None }
                         }
                         _ => None,
                     };
@@ -179,11 +150,7 @@ pub fn linemerge(toolpaths: Vec<Toolpath>, tol_mm: f64) -> Vec<Toolpath> {
                 None => break,
             }
         }
-        let closes = chain
-            .segments
-            .first()
-            .zip(chain.segments.last())
-            .map_or(false, |(f, l)| dist(f.start(), l.end()) <= tol_mm);
+        let closes = chain.segments.first().zip(chain.segments.last()).map_or(false, |(f, l)| dist(f.start(), l.end()) <= tol_mm);
         chain.closed = closes;
         out.push(chain);
     }
@@ -240,7 +207,7 @@ pub fn linesort(toolpaths: Vec<Toolpath>) -> Vec<Toolpath> {
             }
         }
         let Some((j, rev, _)) = best else { break };
-        let mut cand = pool[j].take().unwrap();
+        let Some(mut cand) = pool[j].take() else { break };
         if rev {
             cand = reversed(&cand);
         }
@@ -272,14 +239,10 @@ pub fn blade_offset(toolpaths: Vec<Toolpath>, offset_mm: f64, cutoff_deg: f64) -
             if pts.len() < 2 {
                 return tp;
             }
-            let closed = tp.closed && dist(pts[0], *pts.last().unwrap()) < 1e-6;
+            let closed = tp.closed && pts.first().zip(pts.last()).is_some_and(|(f, l)| dist(*f, *l) < 1e-6);
             // Walk the vertices once. A closed contour repeats its first point at the end;
             // drop the duplicate and close the pivot loop explicitly.
-            let work: Vec<Point> = if closed {
-                pts[..pts.len() - 1].to_vec()
-            } else {
-                pts.clone()
-            };
+            let work: Vec<Point> = if closed { pts[..pts.len() - 1].to_vec() } else { pts.clone() };
             let n = work.len();
             if n < 2 {
                 return tp;
@@ -289,10 +252,7 @@ pub fn blade_offset(toolpaths: Vec<Toolpath>, offset_mm: f64, cutoff_deg: f64) -
             let mut pivot: Vec<Point> = Vec::with_capacity(n + 16);
             // First pivot: lead the tip along the first edge.
             let (ux, uy) = dir(work[0], work[1]);
-            pivot.push(Point::new(
-                work[0].x + offset_mm * ux,
-                work[0].y + offset_mm * uy,
-            ));
+            pivot.push(Point::new(work[0].x + offset_mm * ux, work[0].y + offset_mm * uy));
 
             let end = if closed { n } else { n - 1 };
             for i in 1..end {
@@ -303,10 +263,7 @@ pub fn blade_offset(toolpaths: Vec<Toolpath>, offset_mm: f64, cutoff_deg: f64) -
                 let (outx, outy) = dir(cur, next);
                 // Pivot reaches past the corner along the incoming edge: the tip sits on
                 // the vertex at this moment.
-                pivot.push(Point::new(
-                    cur.x + offset_mm * inx,
-                    cur.y + offset_mm * iny,
-                ));
+                pivot.push(Point::new(cur.x + offset_mm * inx, cur.y + offset_mm * iny));
                 let a0 = iny.atan2(inx);
                 let a1 = outy.atan2(outx);
                 let mut sweep = a1 - a0;
@@ -321,16 +278,10 @@ pub fn blade_offset(toolpaths: Vec<Toolpath>, offset_mm: f64, cutoff_deg: f64) -
                     let steps = ((sweep.abs() / 0.26).ceil() as usize).max(2);
                     for k in 1..steps {
                         let a = a0 + sweep * (k as f64 / steps as f64);
-                        pivot.push(Point::new(
-                            cur.x + offset_mm * a.cos(),
-                            cur.y + offset_mm * a.sin(),
-                        ));
+                        pivot.push(Point::new(cur.x + offset_mm * a.cos(), cur.y + offset_mm * a.sin()));
                     }
                 }
-                pivot.push(Point::new(
-                    cur.x + offset_mm * outx,
-                    cur.y + offset_mm * outy,
-                ));
+                pivot.push(Point::new(cur.x + offset_mm * outx, cur.y + offset_mm * outy));
             }
 
             if closed {
@@ -340,22 +291,10 @@ pub fn blade_offset(toolpaths: Vec<Toolpath>, offset_mm: f64, cutoff_deg: f64) -
                 let n1 = work[n - 1];
                 let n2 = work[n - 2];
                 let (ux, uy) = dir(n2, n1);
-                pivot.push(Point::new(
-                    n1.x + offset_mm * ux,
-                    n1.y + offset_mm * uy,
-                ));
+                pivot.push(Point::new(n1.x + offset_mm * ux, n1.y + offset_mm * uy));
             }
 
-            Toolpath {
-                segments: pivot
-                    .windows(2)
-                    .map(|w| Segment::Line {
-                        a: w[0],
-                        b: w[1],
-                    })
-                    .collect(),
-                closed,
-            }
+            Toolpath { segments: pivot.windows(2).map(|w| Segment::Line { a: w[0], b: w[1] }).collect(), closed }
         })
         .collect()
 }
@@ -388,25 +327,14 @@ mod tests {
     use crate::geom::Toolpath;
 
     fn line_path(a: Point, b: Point) -> Toolpath {
-        Toolpath {
-            segments: vec![Segment::Line { a: a, b: b }],
-            closed: false,
-        }
+        Toolpath { segments: vec![Segment::Line { a: a, b: b }], closed: false }
     }
 
     #[test]
     fn min_line_collapses_short_segments() {
         // A 0.1 mm jog between two long runs should be collapsed away.
-        let pts = vec![
-            Point::new(0.0, 0.0),
-            Point::new(10.0, 0.0),
-            Point::new(10.05, 0.0),
-            Point::new(20.0, 0.0),
-        ];
-        let tp = Toolpath {
-            segments: pts.windows(2).map(|w| Segment::Line { a: w[0], b: w[1] }).collect(),
-            closed: false,
-        };
+        let pts = vec![Point::new(0.0, 0.0), Point::new(10.0, 0.0), Point::new(10.05, 0.0), Point::new(20.0, 0.0)];
+        let tp = Toolpath { segments: pts.windows(2).map(|w| Segment::Line { a: w[0], b: w[1] }).collect(), closed: false };
         let out = min_line(vec![tp], 0.5);
         assert_eq!(out.len(), 1);
         // The 0.05 mm jog is gone; the path is 0 -> 10 -> 20.

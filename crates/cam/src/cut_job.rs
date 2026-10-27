@@ -37,9 +37,7 @@
 
 use std::collections::HashMap;
 
-use solidcraft_geom::section::{
-    CurveAccuracy, CurveUse, SectionCurve, SectionGeometry, SectionRegion, SectionWire,
-};
+use solidcraft_geom::section::{CurveAccuracy, CurveUse, SectionCurve, SectionGeometry, SectionRegion, SectionWire};
 use solidcraft_geom::{Loop2, Mesh, Plane, Region2, Seg2, Vec2, Vec3};
 
 use crate::geom::{Point, Segment, Toolpath};
@@ -76,16 +74,7 @@ pub struct CutJobRequest<'a> {
 impl<'a> CutJobRequest<'a> {
     /// A request that cuts the section exactly, with no kerf and no leads.
     pub fn new(mesh: &'a Mesh, plane: Plane, profile: &'a MachineProfile) -> Self {
-        Self {
-            mesh,
-            plane,
-            profile,
-            kerf_mm: 0.0,
-            lead_in_mm: 0.0,
-            lead_out_mm: 0.0,
-            curve_tol_mm: 0.01,
-            closure_tol_mm: 1e-6,
-        }
+        Self { mesh, plane, profile, kerf_mm: 0.0, lead_in_mm: 0.0, lead_out_mm: 0.0, curve_tol_mm: 0.01, closure_tol_mm: 1e-6 }
     }
 }
 
@@ -194,11 +183,7 @@ pub fn slice_mesh(mesh: &Mesh, plane: Plane, closure_tol_mm: f64) -> Result<Sect
 
     for tri in &mesh.triangles {
         let [ia, ib, ic] = *tri;
-        let (Some(&ha), Some(&hb), Some(&hc)) = (
-            heights.get(ia as usize),
-            heights.get(ib as usize),
-            heights.get(ic as usize),
-        ) else {
+        let (Some(&ha), Some(&hb), Some(&hc)) = (heights.get(ia as usize), heights.get(ib as usize), heights.get(ic as usize)) else {
             return Err(CutJobError::Request("a triangle references a vertex the mesh does not have"));
         };
         let idx = [ia, ib, ic];
@@ -235,9 +220,7 @@ pub fn slice_mesh(mesh: &Mesh, plane: Plane, closure_tol_mm: f64) -> Result<Sect
                 let v = mesh.positions[idx[k] as usize];
                 let h_i = heights[idx[i] as usize];
                 let h_j = heights[idx[j] as usize];
-                if let Some(cross) =
-                    edge_crossing(mesh.positions[idx[i] as usize], h_i, mesh.positions[idx[j] as usize], h_j)
-                {
+                if let Some(cross) = edge_crossing(mesh.positions[idx[i] as usize], h_i, mesh.positions[idx[j] as usize], h_j) {
                     let a = plane.to_local(v);
                     let b = plane.to_local(cross);
                     if a.dist(b) > ON_PLANE_MM {
@@ -305,11 +288,7 @@ pub fn slice_mesh(mesh: &Mesh, plane: Plane, closure_tol_mm: f64) -> Result<Sect
     let mut section = build_section(plane, oriented, &nesting, open, contacts);
     // A contact that already sits on an emitted contour is not isolated; keep only the ones that
     // stand alone, which is what the field documents.
-    let endpoints: Vec<Vec2> = section
-        .curves
-        .iter()
-        .flat_map(|c| [c.geometry.start(), c.geometry.end()])
-        .collect();
+    let endpoints: Vec<Vec2> = section.curves.iter().flat_map(|c| [c.geometry.start(), c.geometry.end()]).collect();
     section.contacts.retain(|p| !endpoints.iter().any(|q| q.dist(*p) <= closure_tol_mm));
     section.validate_structure(closure_tol_mm)?;
     Ok(section)
@@ -437,14 +416,7 @@ fn stitch(segments: &[(Vec2, Vec2)], tol: f64) -> (Vec<Vec<Vec2>>, Vec<Vec<Vec2>
 }
 
 /// The next unused edge at `at`, preferring the one that continues the incoming direction.
-fn continuation(
-    incident: &[usize],
-    edges: &[(usize, usize)],
-    used: &[bool],
-    at: usize,
-    nodes: &[Vec2],
-    came_from: Vec2,
-) -> Option<usize> {
+fn continuation(incident: &[usize], edges: &[(usize, usize)], used: &[bool], at: usize, nodes: &[Vec2], came_from: Vec2) -> Option<usize> {
     let here = *nodes.get(at)?;
     let incoming = here - came_from;
     let incoming = if incoming.len() > 1e-15 { incoming } else { Vec2::new(1.0, 0.0) };
@@ -455,7 +427,13 @@ fn continuation(
             continue;
         }
         let (a, b) = *edges.get(e)?;
-        let far = if a == at { b } else if b == at { a } else { continue };
+        let far = if a == at {
+            b
+        } else if b == at {
+            a
+        } else {
+            continue;
+        };
         let dir = *nodes.get(far)? - here;
         let len = dir.len();
         if len <= 1e-15 {
@@ -507,14 +485,9 @@ struct Nesting {
 /// region at all (#cut_job).
 fn analyse_nesting(loops: &[Vec<Vec2>], tol: f64) -> Nesting {
     let n = loops.len();
-    let containers: Vec<Vec<usize>> = (0..n)
-        .map(|i| (0..n).filter(|&j| j != i && loop_inside(&loops[i], &loops[j], tol)).collect())
-        .collect();
+    let containers: Vec<Vec<usize>> = (0..n).map(|i| (0..n).filter(|&j| j != i && loop_inside(&loops[i], &loops[j], tol)).collect()).collect();
     let depth: Vec<usize> = containers.iter().map(Vec::len).collect();
-    let parent: Vec<Option<usize>> = containers
-        .iter()
-        .map(|c| c.iter().copied().max_by_key(|&j| depth.get(j).copied().unwrap_or(0)))
-        .collect();
+    let parent: Vec<Option<usize>> = containers.iter().map(|c| c.iter().copied().max_by_key(|&j| depth.get(j).copied().unwrap_or(0))).collect();
     Nesting { depth, parent }
 }
 
@@ -598,13 +571,7 @@ fn point_in_ring(p: Vec2, ring: &[Vec2]) -> bool {
 
 /// Assemble the section DTO: one closed wire per loop and in loop order, so a region's wire
 /// reference is its loop index. Open chains follow the closed loops.
-fn build_section(
-    plane: Plane,
-    loops: Vec<Vec<Vec2>>,
-    nesting: &Nesting,
-    open: Vec<Vec<Vec2>>,
-    contacts: Vec<Vec2>,
-) -> SectionGeometry {
+fn build_section(plane: Plane, loops: Vec<Vec<Vec2>>, nesting: &Nesting, open: Vec<Vec<Vec2>>, contacts: Vec<Vec2>) -> SectionGeometry {
     let mut curves: Vec<SectionCurve> = Vec::new();
     let mut wires: Vec<SectionWire> = Vec::new();
     for ring in &loops {
@@ -615,10 +582,7 @@ fn build_section(
             let b = ring[(i + 1) % n];
             curves.push(SectionCurve { geometry: Seg2::Line { a, b }, accuracy: CurveAccuracy::Analytic });
         }
-        wires.push(SectionWire {
-            curves: (0..n as u32).map(|k| CurveUse { curve: base + k, forward: true }).collect(),
-            closed: true,
-        });
+        wires.push(SectionWire { curves: (0..n as u32).map(|k| CurveUse { curve: base + k, forward: true }).collect(), closed: true });
     }
     for chain in &open {
         let base = curves.len() as u32;
@@ -628,20 +592,14 @@ fn build_section(
             let b = chain[i + 1];
             curves.push(SectionCurve { geometry: Seg2::Line { a, b }, accuracy: CurveAccuracy::Analytic });
         }
-        wires.push(SectionWire {
-            curves: (0..n as u32).map(|k| CurveUse { curve: base + k, forward: true }).collect(),
-            closed: false,
-        });
+        wires.push(SectionWire { curves: (0..n as u32).map(|k| CurveUse { curve: base + k, forward: true }).collect(), closed: false });
     }
     let mut regions: Vec<SectionRegion> = Vec::new();
     for i in 0..loops.len() {
         if nesting.depth.get(i).copied().unwrap_or(0) % 2 != 0 {
             continue;
         }
-        let holes: Vec<u32> = (0..loops.len())
-            .filter(|&j| nesting.parent.get(j).copied().flatten() == Some(i))
-            .map(|j| j as u32)
-            .collect();
+        let holes: Vec<u32> = (0..loops.len()).filter(|&j| nesting.parent.get(j).copied().flatten() == Some(i)).map(|j| j as u32).collect();
         regions.push(SectionRegion { outer: i as u32, holes });
     }
     SectionGeometry { plane, curves, wires, regions, contacts }
@@ -749,17 +707,11 @@ fn add_leads(tp: &Toolpath, lead_in: f64, lead_out: f64) -> Toolpath {
     let Some(dir) = d.normalized() else { return tp.clone() };
     let mut segments: Vec<Segment> = Vec::with_capacity(tp.segments.len() + 2);
     if lead_in > 0.0 {
-        segments.push(Segment::Line {
-            a: Point::new(p0.x - dir.x * lead_in, p0.y - dir.y * lead_in),
-            b: p0,
-        });
+        segments.push(Segment::Line { a: Point::new(p0.x - dir.x * lead_in, p0.y - dir.y * lead_in), b: p0 });
     }
     segments.extend(tp.segments.iter().cloned());
     if lead_out > 0.0 {
-        segments.push(Segment::Line {
-            a: p0,
-            b: Point::new(p0.x + dir.x * lead_out, p0.y + dir.y * lead_out),
-        });
+        segments.push(Segment::Line { a: p0, b: Point::new(p0.x + dir.x * lead_out, p0.y + dir.y * lead_out) });
     }
     Toolpath { segments, closed: false }
 }
@@ -787,9 +739,7 @@ mod tests {
 
     /// A closed box as 12 triangles, each face with its own four vertices.
     fn cuboid(lo: Vec3, hi: Vec3) -> Mesh {
-        let v = |x: bool, y: bool, z: bool| {
-            Vec3::new(if x { hi.x } else { lo.x }, if y { hi.y } else { lo.y }, if z { hi.z } else { lo.z })
-        };
+        let v = |x: bool, y: bool, z: bool| Vec3::new(if x { hi.x } else { lo.x }, if y { hi.y } else { lo.y }, if z { hi.z } else { lo.z });
         let quads = [
             [v(false, false, false), v(false, true, false), v(true, true, false), v(true, false, false)],
             [v(false, false, true), v(true, false, true), v(true, true, true), v(false, true, true)],
@@ -942,19 +892,8 @@ mod tests {
     /// — cuts with no mesh and no plane, which is the whole point of `CutOptions`.
     #[test]
     fn a_region_cuts_its_outer_and_its_holes_without_a_mesh() {
-        let outer = Loop2::polygon(&[
-            Vec2::new(0.0, 0.0),
-            Vec2::new(10.0, 0.0),
-            Vec2::new(10.0, 10.0),
-            Vec2::new(0.0, 10.0),
-        ]);
-        let hole = Loop2::polygon(&[
-            Vec2::new(3.0, 3.0),
-            Vec2::new(7.0, 3.0),
-            Vec2::new(7.0, 7.0),
-            Vec2::new(3.0, 7.0),
-        ])
-        .reversed();
+        let outer = Loop2::polygon(&[Vec2::new(0.0, 0.0), Vec2::new(10.0, 0.0), Vec2::new(10.0, 10.0), Vec2::new(0.0, 10.0)]);
+        let hole = Loop2::polygon(&[Vec2::new(3.0, 3.0), Vec2::new(7.0, 3.0), Vec2::new(7.0, 7.0), Vec2::new(3.0, 7.0)]).reversed();
         let region = Region2 { outer, holes: vec![hole] };
         let paths = region_to_toolpaths(&region, &CutOptions::default());
         assert_eq!(paths.len(), 2, "one outer and one hole");

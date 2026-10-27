@@ -152,15 +152,9 @@ fn to_toolpaths(shapes: Vec<Vec<Vec<[f64; 2]>>>) -> Vec<Toolpath> {
             for i in 0..contour.len() {
                 let a = contour[i];
                 let b = contour[(i + 1) % contour.len()];
-                segments.push(Segment::Line {
-                    a: Point::new(a[0], a[1]),
-                    b: Point::new(b[0], b[1]),
-                });
+                segments.push(Segment::Line { a: Point::new(a[0], a[1]), b: Point::new(b[0], b[1]) });
             }
-            out.push(Toolpath {
-                segments,
-                closed: true,
-            });
+            out.push(Toolpath { segments, closed: true });
         }
     }
     out
@@ -180,21 +174,10 @@ fn to_toolpaths(shapes: Vec<Vec<Vec<[f64; 2]>>>) -> Vec<Toolpath> {
 ///
 /// Returns an empty vector when the operation leaves nothing — a difference that removes the whole
 /// subject, for example — rather than erroring. "Nothing survived" is a legitimate design outcome.
-pub fn boolean_paths(
-    subject: &[Toolpath],
-    clip: &[Toolpath],
-    op: BooleanOp,
-    fill: FillMode,
-) -> Vec<Toolpath> {
+pub fn boolean_paths(subject: &[Toolpath], clip: &[Toolpath], op: BooleanOp, fill: FillMode) -> Vec<Toolpath> {
     // `contour_points` reads segment start points, so curves must be chords before it runs.
-    let subject_flat: Vec<Toolpath> = subject
-        .iter()
-        .map(|t| t.flattened(crate::geom::DEFAULT_FLATTEN_TOL_MM))
-        .collect();
-    let clip_flat: Vec<Toolpath> = clip
-        .iter()
-        .map(|t| t.flattened(crate::geom::DEFAULT_FLATTEN_TOL_MM))
-        .collect();
+    let subject_flat: Vec<Toolpath> = subject.iter().map(|t| t.flattened(crate::geom::DEFAULT_FLATTEN_TOL_MM)).collect();
+    let clip_flat: Vec<Toolpath> = clip.iter().map(|t| t.flattened(crate::geom::DEFAULT_FLATTEN_TOL_MM)).collect();
     let subj: Vec<Vec<[f64; 2]>> = subject_flat.iter().filter_map(contour_points).collect();
     if subj.is_empty() {
         return Vec::new();
@@ -270,11 +253,7 @@ mod tests {
         let b = rect(2.0, 0.0, 4.0, 4.0);
         let out = boolean_paths(&[a, b], &[], BooleanOp::Union, FillMode::NonZero);
         assert_eq!(out.len(), 1, "overlapping rectangles should weld to one contour");
-        assert!(
-            (net_area(&out) - 24.0).abs() < 0.01,
-            "union area should be 24, got {}",
-            net_area(&out)
-        );
+        assert!((net_area(&out) - 24.0).abs() < 0.01, "union area should be 24, got {}", net_area(&out));
     }
 
     #[test]
@@ -293,11 +272,7 @@ mod tests {
         let clip = rect(2.0, 0.0, 2.0, 4.0);
         let out = boolean_paths(&[subj], &[clip], BooleanOp::Difference, FillMode::NonZero);
         assert_eq!(out.len(), 1);
-        assert!(
-            (net_area(&out) - 8.0).abs() < 0.01,
-            "difference area should be 8, got {}",
-            net_area(&out)
-        );
+        assert!((net_area(&out) - 8.0).abs() < 0.01, "difference area should be 8, got {}", net_area(&out));
     }
 
     #[test]
@@ -306,11 +281,7 @@ mod tests {
         let clip = rect(2.0, 0.0, 2.0, 4.0);
         let out = boolean_paths(&[subj], &[clip], BooleanOp::Intersect, FillMode::NonZero);
         assert_eq!(out.len(), 1);
-        assert!(
-            (net_area(&out) - 8.0).abs() < 0.01,
-            "intersection area should be 8, got {}",
-            net_area(&out)
-        );
+        assert!((net_area(&out) - 8.0).abs() < 0.01, "intersection area should be 8, got {}", net_area(&out));
     }
 
     #[test]
@@ -322,11 +293,7 @@ mod tests {
         let a = rect(0.0, 0.0, 4.0, 4.0);
         let b = rect(2.0, 0.0, 4.0, 4.0);
         let out = boolean_paths(&[a], &[b], BooleanOp::Xor, FillMode::NonZero);
-        assert!(
-            (net_area(&out) - 16.0).abs() < 0.01,
-            "xor area should be 16, got {}",
-            net_area(&out)
-        );
+        assert!((net_area(&out) - 16.0).abs() < 0.01, "xor area should be 16, got {}", net_area(&out));
     }
 
     #[test]
@@ -346,11 +313,7 @@ mod tests {
         let hole = rect_cw(2.0, 2.0, 6.0, 6.0);
         let out = weld(&[outer, hole], FillMode::NonZero);
         assert_eq!(out.len(), 2, "a ring should come back as outer plus hole");
-        assert!(
-            (net_area(&out) - 64.0).abs() < 0.01,
-            "ring area should be 64, got {}",
-            net_area(&out)
-        );
+        assert!((net_area(&out) - 64.0).abs() < 0.01, "ring area should be 64, got {}", net_area(&out));
     }
 
     #[test]
@@ -361,11 +324,7 @@ mod tests {
         let inner = rect(2.0, 2.0, 6.0, 6.0);
         let out = weld(&[outer, inner], FillMode::EvenOdd);
         assert_eq!(out.len(), 2);
-        assert!(
-            (net_area(&out) - 64.0).abs() < 0.01,
-            "even-odd ring area should be 64, got {}",
-            net_area(&out)
-        );
+        assert!((net_area(&out) - 64.0).abs() < 0.01, "even-odd ring area should be 64, got {}", net_area(&out));
     }
 
     #[test]
@@ -373,14 +332,8 @@ mod tests {
         // An open polyline has no interior. Welding it must not invent an area from nothing.
         let open = Toolpath {
             segments: vec![
-                Segment::Line {
-                    a: Point::new(0.0, 0.0),
-                    b: Point::new(4.0, 0.0),
-                },
-                Segment::Line {
-                    a: Point::new(4.0, 0.0),
-                    b: Point::new(4.0, 4.0),
-                },
+                Segment::Line { a: Point::new(0.0, 0.0), b: Point::new(4.0, 0.0) },
+                Segment::Line { a: Point::new(4.0, 0.0), b: Point::new(4.0, 4.0) },
             ],
             closed: false,
         };

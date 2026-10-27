@@ -58,11 +58,7 @@ pub fn offset_closed(toolpath: &Toolpath, distance: f64) -> Vec<Toolpath> {
     // A zero offset is the identity. Returning the input unchanged is both correct and the
     // least surprising thing to do.
     if distance.abs() < EPS {
-        return if toolpath.closed && toolpath.segments.len() >= 3 {
-            vec![toolpath.clone()]
-        } else {
-            Vec::new()
-        };
+        return if toolpath.closed && toolpath.segments.len() >= 3 { vec![toolpath.clone()] } else { Vec::new() };
     }
     if !toolpath.closed {
         return Vec::new();
@@ -221,7 +217,7 @@ fn contour_points(toolpath: &Toolpath) -> Vec<Point> {
 /// Remove consecutive duplicate points, including a duplicate between the last and first.
 fn dedupe(pts: &mut Vec<Point>) {
     pts.dedup_by(|a, b| near(*a, *b));
-    while pts.len() > 1 && near(pts[0], *pts.last().unwrap()) {
+    while pts.len() > 1 && pts.first().zip(pts.last()).is_some_and(|(f, l)| near(*f, *l)) {
         pts.pop();
     }
 }
@@ -257,10 +253,7 @@ fn closed_toolpath(pts: Vec<Point>) -> Toolpath {
             segments.push(Segment::Line { a: from, b: to });
         }
     }
-    Toolpath {
-        segments,
-        closed: true,
-    }
+    Toolpath { segments, closed: true }
 }
 
 /// The signed area of a vertex ring. Positive means counter-clockwise.
@@ -295,11 +288,7 @@ fn length(v: Point) -> f64 {
 
 fn normalize(v: Point) -> Option<Point> {
     let len = length(v);
-    if len < EPS {
-        None
-    } else {
-        Some(Point::new(v.x / len, v.y / len))
-    }
+    if len < EPS { None } else { Some(Point::new(v.x / len, v.y / len)) }
 }
 
 fn cross(a: Point, b: Point) -> f64 {
@@ -419,11 +408,7 @@ mod tests {
         // Every segment's end must be the next segment's start.
         let n = tp.segments.len();
         for i in 0..n {
-            assert!(
-                near(tp.segments[i].end(), tp.segments[(i + 1) % n].start()),
-                "gap between segment {i} and {}",
-                (i + 1) % n
-            );
+            assert!(near(tp.segments[i].end(), tp.segments[(i + 1) % n].start()), "gap between segment {i} and {}", (i + 1) % n);
         }
     }
 
@@ -462,9 +447,6 @@ mod tests {
         let straight = (10.0 + 2.0 * d) * (10.0 + 2.0 * d);
         let corner_loss = 4.0 * (d * d - std::f64::consts::PI * d * d / 4.0);
         let expected = straight - corner_loss;
-        assert!(
-            (area - expected).abs() < 0.5,
-            "area {area} vs expected {expected}"
-        );
+        assert!((area - expected).abs() < 0.5, "area {area} vs expected {expected}");
     }
 }

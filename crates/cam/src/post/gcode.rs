@@ -33,26 +33,10 @@ impl CommandSet for Gcode {
     }
 
     /// `I`/`J` are the centre relative to the arc's start, not absolute, per RS-274.
-    fn arc_to(
-        &self,
-        from: Point,
-        to: Point,
-        center: Point,
-        _radius: f64,
-        sweep: f64,
-    ) -> Option<String> {
-        let (i, j) = (
-            (center.x - from.x) * self.u,
-            (center.y - from.y) * self.u,
-        );
+    fn arc_to(&self, from: Point, to: Point, center: Point, _radius: f64, sweep: f64) -> Option<String> {
+        let (i, j) = ((center.x - from.x) * self.u, (center.y - from.y) * self.u);
         let g = if sweep < 0.0 { "G2" } else { "G3" };
-        Some(format!(
-            "{g} X{:.2} Y{:.2} I{:.2} J{:.2}\n",
-            to.x * self.u,
-            to.y * self.u,
-            i,
-            j
-        ))
+        Some(format!("{g} X{:.2} Y{:.2} I{:.2} J{:.2}\n", to.x * self.u, to.y * self.u, i, j))
     }
 }
 
@@ -77,10 +61,7 @@ mod tests {
 
     #[test]
     fn a_line_is_one_g1() {
-        let tp = Toolpath {
-            segments: vec![Segment::Line { a: Point::new(0.0, 0.0), b: Point::new(10.0, 5.0) }],
-            closed: false,
-        };
+        let tp = Toolpath { segments: vec![Segment::Line { a: Point::new(0.0, 0.0), b: Point::new(10.0, 5.0) }], closed: false };
         let out = emit(&profile(), &[tp]);
         assert!(out.contains("G1 X10.00 Y5.00"), "{out}");
     }
@@ -88,15 +69,7 @@ mod tests {
     #[test]
     fn a_half_circle_is_one_g3_with_centre_offsets() {
         // Half circle, radius 10, about (0, 0), starting at (10, 0) and running CCW to (-10, 0).
-        let tp = Toolpath {
-            segments: vec![Segment::Arc {
-                center: Point::new(0.0, 0.0),
-                radius: 10.0,
-                start: 0.0,
-                sweep: PI,
-            }],
-            closed: false,
-        };
+        let tp = Toolpath { segments: vec![Segment::Arc { center: Point::new(0.0, 0.0), radius: 10.0, start: 0.0, sweep: PI }], closed: false };
         let out = emit(&profile(), &[tp]);
         assert!(out.contains("G3 X-10.00 Y0.00 I-10.00 J0.00"), "{out}");
         // One arc command, not a fan of chords.
@@ -106,15 +79,8 @@ mod tests {
 
     #[test]
     fn a_clockwise_arc_is_g2() {
-        let tp = Toolpath {
-            segments: vec![Segment::Arc {
-                center: Point::new(0.0, 0.0),
-                radius: 10.0,
-                start: 0.0,
-                sweep: -PI / 2.0,
-            }],
-            closed: false,
-        };
+        let tp =
+            Toolpath { segments: vec![Segment::Arc { center: Point::new(0.0, 0.0), radius: 10.0, start: 0.0, sweep: -PI / 2.0 }], closed: false };
         let out = emit(&profile(), &[tp]);
         assert!(out.contains("G2 "), "{out}");
     }

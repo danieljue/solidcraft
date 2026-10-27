@@ -338,14 +338,8 @@ pub(crate) fn points_from_json(v: Option<&Value>) -> Result<Vec<Point>, String> 
     arr.iter()
         .enumerate()
         .map(|(i, item)| {
-            let x = item
-                .get("x")
-                .and_then(Value::as_f64)
-                .ok_or_else(|| format!("point {i} is missing a numeric x"))?;
-            let y = item
-                .get("y")
-                .and_then(Value::as_f64)
-                .ok_or_else(|| format!("point {i} is missing a numeric y"))?;
+            let x = item.get("x").and_then(Value::as_f64).ok_or_else(|| format!("point {i} is missing a numeric x"))?;
+            let y = item.get("y").and_then(Value::as_f64).ok_or_else(|| format!("point {i} is missing a numeric y"))?;
             Ok(Point::new(x, y))
         })
         .collect()

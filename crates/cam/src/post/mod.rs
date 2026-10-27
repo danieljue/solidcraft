@@ -42,14 +42,7 @@ pub trait CommandSet {
     /// A circular arc from `from` to `to` about `center`. `sweep` is in radians and is
     /// positive counter-clockwise, which is the sign convention every controller uses once
     /// it is converted (G-code picks `G2`/`G3`, HPGL takes degrees).
-    fn arc_to(
-        &self,
-        _from: Point,
-        _to: Point,
-        _center: Point,
-        _radius: f64,
-        _sweep: f64,
-    ) -> Option<String> {
+    fn arc_to(&self, _from: Point, _to: Point, _center: Point, _radius: f64, _sweep: f64) -> Option<String> {
         None
     }
 
@@ -68,11 +61,7 @@ pub fn emit(profile: &MachineProfile, toolpaths: &[Toolpath]) -> Result<String, 
 
 /// Like [`emit`], but every draw is emitted as a pen-up move (`pen = Pen::Up`).
 /// Use for dry runs: the machine follows the geometry without cutting.
-pub fn emit_with_pen(
-    profile: &MachineProfile,
-    toolpaths: &[Toolpath],
-    pen: Pen,
-) -> Result<String, PostError> {
+pub fn emit_with_pen(profile: &MachineProfile, toolpaths: &[Toolpath], pen: Pen) -> Result<String, PostError> {
     // Travel limits: refuse a job that would drive the carriage past its end stop.
     // The app's roll-fit clamp already keeps a design on the material; this is the
     // second gate, against the machine's own travel, which the roll width cannot know.
@@ -96,26 +85,16 @@ fn check_limits(profile: &MachineProfile, toolpaths: &[Toolpath]) -> Result<(), 
             // An arc or a Bézier can bulge past its endpoints, and the carriage would hit
             // the end stop in the middle of it. A straight segment cannot, and sampling one
             // would allocate a vector for every segment of every job.
-            let samples = if matches!(seg, Segment::Line { .. }) {
-                vec![seg.end()]
-            } else {
-                seg.polyline(0.5)
-            };
+            let samples = if matches!(seg, Segment::Line { .. }) { vec![seg.end()] } else { seg.polyline(0.5) };
             for p in samples {
                 if let Some(mx) = max_x {
                     if p.x > mx + 1e-9 {
-                        return Err(PostError::OutOfBounds(format!(
-                            "design reaches x = {:.2} mm, past the machine's {:.2} mm travel",
-                            p.x, mx
-                        )));
+                        return Err(PostError::OutOfBounds(format!("design reaches x = {:.2} mm, past the machine's {:.2} mm travel", p.x, mx)));
                     }
                 }
                 if let Some(my) = max_y {
                     if p.y > my + 1e-9 {
-                        return Err(PostError::OutOfBounds(format!(
-                            "design reaches y = {:.2} mm, past the machine's {:.2} mm travel",
-                            p.y, my
-                        )));
+                        return Err(PostError::OutOfBounds(format!("design reaches y = {:.2} mm, past the machine's {:.2} mm travel", p.y, my)));
                     }
                 }
             }
@@ -134,12 +113,7 @@ fn check_limits(profile: &MachineProfile, toolpaths: &[Toolpath]) -> Result<(), 
 ///
 /// The geometry, the pen/overcut rules and curve flattening live here so every protocol
 /// behaves the same; `cmds` supplies only the command words.
-pub(crate) fn emit_generic(
-    profile: &MachineProfile,
-    toolpaths: &[Toolpath],
-    pen: Pen,
-    cmds: &dyn CommandSet,
-) -> String {
+pub(crate) fn emit_generic(profile: &MachineProfile, toolpaths: &[Toolpath], pen: Pen, cmds: &dyn CommandSet) -> String {
     let mut out = String::new();
     out.push_str(&profile.header);
     out.push_str(&profile.setup_commands());
@@ -178,10 +152,7 @@ pub(crate) fn emit_generic(
             // across the shape — on a circle, straight towards the middle.
             let dir = first.start_tangent();
             if dir.len() > 1e-9 {
-                let over = Point::new(
-                    start.x + dir.x * profile.overcut_mm,
-                    start.y + dir.y * profile.overcut_mm,
-                );
+                let over = Point::new(start.x + dir.x * profile.overcut_mm, start.y + dir.y * profile.overcut_mm);
                 match pen {
                     Pen::Down => {
                         out.push_str(&cmds.line_to(over));
@@ -258,10 +229,7 @@ mod tolerance_tests {
         let coarse = emit(&dmpl_with_tolerance(1.0), &[tp]).unwrap();
         let fine_draws = fine.matches('D').count();
         let coarse_draws = coarse.matches('D').count();
-        assert!(
-            coarse_draws < fine_draws,
-            "coarse {coarse_draws} chords should be fewer than fine {fine_draws}"
-        );
+        assert!(coarse_draws < fine_draws, "coarse {coarse_draws} chords should be fewer than fine {fine_draws}");
         assert!(coarse_draws > 8, "even a coarse circle needs real chords, got {coarse_draws}");
     }
 

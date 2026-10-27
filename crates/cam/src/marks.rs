@@ -25,10 +25,7 @@ pub enum MarkStyle {
     /// A plus sign with `size_mm` arms. Reads from any direction.
     Cross { size_mm: f64 },
     /// A circle of `diameter_mm` with a crosshair through it. The "Ultra" registration mark.
-    CircleCross {
-        diameter_mm: f64,
-        segments: usize,
-    },
+    CircleCross { diameter_mm: f64, segments: usize },
 }
 
 impl Default for MarkStyle {
@@ -66,11 +63,7 @@ pub struct MarkConfig {
 
 impl Default for MarkConfig {
     fn default() -> Self {
-        Self {
-            style: MarkStyle::default(),
-            placement: MarkPlacement::default(),
-            margin_mm: 5.0,
-        }
+        Self { style: MarkStyle::default(), placement: MarkPlacement::default(), margin_mm: 5.0 }
     }
 }
 
@@ -91,18 +84,12 @@ pub fn registration_marks(bbox: (Point, Point), cfg: &MarkConfig) -> Vec<Toolpat
             Point::new(max.x + m, max.y + m),
             Point::new(min.x - m, max.y + m),
         ],
-        MarkPlacement::EdgeMidpoints => vec![
-            Point::new(cx, min.y - m),
-            Point::new(max.x + m, cy),
-            Point::new(cx, max.y + m),
-            Point::new(min.x - m, cy),
-        ],
+        MarkPlacement::EdgeMidpoints => {
+            vec![Point::new(cx, min.y - m), Point::new(max.x + m, cy), Point::new(cx, max.y + m), Point::new(min.x - m, cy)]
+        }
         MarkPlacement::Centre => vec![centre],
     };
-    anchors
-        .into_iter()
-        .flat_map(|p| mark_at(p, centre, cfg.style))
-        .collect()
+    anchors.into_iter().flat_map(|p| mark_at(p, centre, cfg.style)).collect()
 }
 
 /// One mark's geometry at `p`, opening toward `toward`.
@@ -113,22 +100,13 @@ fn mark_at(p: Point, toward: Point, style: MarkStyle) -> Vec<Toolpath> {
             // Arms point from the anchor toward the design so the L wraps the corner.
             let dx = if toward.x >= p.x { 1.0 } else { -1.0 };
             let dy = if toward.y >= p.y { 1.0 } else { -1.0 };
-            vec![
-                line(p, Point::new(p.x + dx * s, p.y)),
-                line(p, Point::new(p.x, p.y + dy * s)),
-            ]
+            vec![line(p, Point::new(p.x + dx * s, p.y)), line(p, Point::new(p.x, p.y + dy * s))]
         }
         MarkStyle::Cross { size_mm } => {
             let h = size_mm.max(0.1) * 0.5;
-            vec![
-                line(Point::new(p.x - h, p.y), Point::new(p.x + h, p.y)),
-                line(Point::new(p.x, p.y - h), Point::new(p.x, p.y + h)),
-            ]
+            vec![line(Point::new(p.x - h, p.y), Point::new(p.x + h, p.y)), line(Point::new(p.x, p.y - h), Point::new(p.x, p.y + h))]
         }
-        MarkStyle::CircleCross {
-            diameter_mm,
-            segments,
-        } => {
+        MarkStyle::CircleCross { diameter_mm, segments } => {
             let r = diameter_mm.max(0.1) * 0.5;
             let n = segments.max(8);
             let mut segs = Vec::with_capacity(n);
@@ -140,19 +118,10 @@ fn mark_at(p: Point, toward: Point, style: MarkStyle) -> Vec<Toolpath> {
                     b: Point::new(p.x + r * a1.cos(), p.y + r * a1.sin()),
                 });
             }
-            let mut out = vec![Toolpath {
-                segments: segs,
-                closed: true,
-            }];
+            let mut out = vec![Toolpath { segments: segs, closed: true }];
             // Crosshair through the circle, matching the "Ultra" registration mark.
-            out.push(line(
-                Point::new(p.x - r, p.y),
-                Point::new(p.x + r, p.y),
-            ));
-            out.push(line(
-                Point::new(p.x, p.y - r),
-                Point::new(p.x, p.y + r),
-            ));
+            out.push(line(Point::new(p.x - r, p.y), Point::new(p.x + r, p.y)));
+            out.push(line(Point::new(p.x, p.y - r), Point::new(p.x, p.y + r)));
             out
         }
     }
@@ -163,12 +132,7 @@ fn mark_at(p: Point, toward: Point, style: MarkStyle) -> Vec<Toolpath> {
 pub fn weed_box(bbox: (Point, Point), margin_mm: f64) -> Toolpath {
     let (min, max) = bbox;
     let m = margin_mm.max(0.0);
-    Toolpath::rectangle(
-        min.x - m,
-        min.y - m,
-        (max.x - min.x) + 2.0 * m,
-        (max.y - min.y) + 2.0 * m,
-    )
+    Toolpath::rectangle(min.x - m, min.y - m, (max.x - min.x) + 2.0 * m, (max.y - min.y) + 2.0 * m)
 }
 
 /// A short "grab tab" at each closed contour's start point. Weeding a hole by hand starts at
@@ -189,10 +153,7 @@ pub fn lift_marks(toolpaths: &[Toolpath], size_mm: f64) -> Vec<Toolpath> {
 }
 
 fn line(a: Point, b: Point) -> Toolpath {
-    Toolpath {
-        segments: vec![Segment::Line { a: a, b: b }],
-        closed: false,
-    }
+    Toolpath { segments: vec![Segment::Line { a: a, b: b }], closed: false }
 }
 
 #[cfg(test)]
@@ -205,11 +166,7 @@ mod tests {
 
     #[test]
     fn corner_l_marks_sit_outside_the_bbox_and_open_inward() {
-        let cfg = MarkConfig {
-            style: MarkStyle::CornerL { size_mm: 5.0 },
-            placement: MarkPlacement::Corners,
-            margin_mm: 5.0,
-        };
+        let cfg = MarkConfig { style: MarkStyle::CornerL { size_mm: 5.0 }, placement: MarkPlacement::Corners, margin_mm: 5.0 };
         let marks = registration_marks(bbox(), &cfg);
         // Four corners, two arms each.
         assert_eq!(marks.len(), 8);
@@ -236,11 +193,7 @@ mod tests {
 
     #[test]
     fn cross_marks_are_centred_on_their_anchor() {
-        let cfg = MarkConfig {
-            style: MarkStyle::Cross { size_mm: 10.0 },
-            placement: MarkPlacement::Centre,
-            margin_mm: 0.0,
-        };
+        let cfg = MarkConfig { style: MarkStyle::Cross { size_mm: 10.0 }, placement: MarkPlacement::Centre, margin_mm: 0.0 };
         let marks = registration_marks(bbox(), &cfg);
         assert_eq!(marks.len(), 2);
         let centre = Point::new(50.0, 25.0);
@@ -253,25 +206,14 @@ mod tests {
 
     #[test]
     fn circle_cross_is_closed_and_has_a_crosshair() {
-        let cfg = MarkConfig {
-            style: MarkStyle::CircleCross {
-                diameter_mm: 9.0,
-                segments: 32,
-            },
-            placement: MarkPlacement::Centre,
-            margin_mm: 0.0,
-        };
+        let cfg = MarkConfig { style: MarkStyle::CircleCross { diameter_mm: 9.0, segments: 32 }, placement: MarkPlacement::Centre, margin_mm: 0.0 };
         let marks = registration_marks(bbox(), &cfg);
         // One closed circle plus two crosshair arms.
         assert_eq!(marks.len(), 3);
         assert!(marks[0].closed);
         assert_eq!(marks[0].segments.len(), 32);
         // The circle's diameter should be within a segment's sagitta of 9 mm.
-        let xs: Vec<f64> = marks[0]
-            .segments
-            .iter()
-            .flat_map(|s| [s.start().x, s.end().x])
-            .collect();
+        let xs: Vec<f64> = marks[0].segments.iter().flat_map(|s| [s.start().x, s.end().x]).collect();
         let min = xs.iter().cloned().fold(f64::INFINITY, f64::min);
         let max = xs.iter().cloned().fold(f64::NEG_INFINITY, f64::max);
         assert!((max - min - 9.0).abs() < 0.1, "diameter was {}", max - min);
@@ -293,13 +235,7 @@ mod tests {
     #[test]
     fn lift_marks_only_attach_to_closed_contours() {
         let closed = Toolpath::rectangle(0.0, 0.0, 10.0, 10.0);
-        let open = Toolpath {
-            segments: vec![Segment::Line {
-                a: Point::new(0.0, 0.0),
-                b: Point::new(10.0, 0.0),
-            }],
-            closed: false,
-        };
+        let open = Toolpath { segments: vec![Segment::Line { a: Point::new(0.0, 0.0), b: Point::new(10.0, 0.0) }], closed: false };
         let marks = lift_marks(&[closed, open], 2.0);
         assert_eq!(marks.len(), 1, "an open path has no hole to weed");
         let s = marks[0].segments[0].start();

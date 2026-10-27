@@ -43,20 +43,8 @@ impl CommandSet for Hpgl {
     }
 
     /// `AA x,y,angle;`: the point is the arc's centre, the angle its sweep in degrees.
-    fn arc_to(
-        &self,
-        _from: Point,
-        _to: Point,
-        center: Point,
-        _radius: f64,
-        sweep: f64,
-    ) -> Option<String> {
-        Some(format!(
-            "AA{:.0},{:.0},{:.2};",
-            center.x * self.u,
-            center.y * self.u,
-            sweep.to_degrees()
-        ))
+    fn arc_to(&self, _from: Point, _to: Point, center: Point, _radius: f64, sweep: f64) -> Option<String> {
+        Some(format!("AA{:.0},{:.0},{:.2};", center.x * self.u, center.y * self.u, sweep.to_degrees()))
     }
 }
 
@@ -82,13 +70,7 @@ mod tests {
     fn move_carries_absolute_mode_and_draw_does_not() {
         // HPGL canonical form: MC=PU;PA%.0f,%.0f; and LC=PD%.0f,%.0f;
         // A move must set absolute mode explicitly; the draw relies on it persisting.
-        let tp = Toolpath {
-            segments: vec![Segment::Line {
-                a: Point::new(0.0, 0.0),
-                b: Point::new(10.0, 20.0),
-            }],
-            closed: false,
-        };
+        let tp = Toolpath { segments: vec![Segment::Line { a: Point::new(0.0, 0.0), b: Point::new(10.0, 20.0) }], closed: false };
         let out = emit(&hpgl_profile(), &[tp]);
         assert!(out.contains("PU;PA0,0;"), "move should set absolute mode: {out}");
         assert!(out.contains("PD400,800;"), "draw should be a bare PD with coordinates: {out}");
@@ -97,13 +79,7 @@ mod tests {
 
     #[test]
     fn header_and_footer_wrap_the_job() {
-        let tp = Toolpath {
-            segments: vec![Segment::Line {
-                a: Point::new(0.0, 0.0),
-                b: Point::new(1.0, 1.0),
-            }],
-            closed: false,
-        };
+        let tp = Toolpath { segments: vec![Segment::Line { a: Point::new(0.0, 0.0), b: Point::new(1.0, 1.0) }], closed: false };
         let out = emit(&hpgl_profile(), &[tp]);
         assert!(out.starts_with("IN;"), "header first: {out}");
         assert!(out.ends_with("!PG;"), "footer last: {out}");
@@ -111,15 +87,7 @@ mod tests {
 
     #[test]
     fn an_arc_is_one_aa_command_in_degrees() {
-        let tp = Toolpath {
-            segments: vec![Segment::Arc {
-                center: Point::new(0.0, 0.0),
-                radius: 10.0,
-                start: 0.0,
-                sweep: PI / 2.0,
-            }],
-            closed: false,
-        };
+        let tp = Toolpath { segments: vec![Segment::Arc { center: Point::new(0.0, 0.0), radius: 10.0, start: 0.0, sweep: PI / 2.0 }], closed: false };
         let out = emit(&hpgl_profile(), &[tp]);
         assert!(out.contains("AA0,0,90.00;"), "expected a quarter-turn AA: {out}");
         assert_eq!(out.matches("AA").count(), 1, "{out}");

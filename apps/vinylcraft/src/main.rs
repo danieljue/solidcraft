@@ -10,20 +10,19 @@ use serde_json::json;
 use std::fs;
 use std::path::Path;
 
-mod geometry;
-mod tools;
-mod serial;
-mod jobs;
-mod control;
 mod app;
-mod dispatch;
+mod control;
 #[cfg(test)]
 mod curve_tests;
-use geometry::*;
-use control::*;
+mod dispatch;
+mod geometry;
+mod jobs;
+mod serial;
+mod tools;
 use app::VinylApp;
+use control::*;
 use dispatch::*;
-
+use geometry::*;
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let args: Vec<String> = std::env::args().skip(1).collect();
@@ -49,11 +48,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     // this process's own state.
     let control_port = arg_value(&args, "--control-port")
         .and_then(|p| p.parse::<u16>().ok())
-        .or_else(|| {
-            fs::read_to_string(control_port_file())
-                .ok()
-                .and_then(|s| s.trim().parse::<u16>().ok())
-        })
+        .or_else(|| fs::read_to_string(control_port_file()).ok().and_then(|s| s.trim().parse::<u16>().ok()))
         .unwrap_or(CONTROL_PORT_DEFAULT);
     if args.iter().any(|a| a == "--quit") {
         match control_request(control_port, json!({"jsonrpc": "2.0", "id": 1, "method": "quit"})) {
@@ -89,9 +84,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         // `--out` is the documented flag; keep accepting a value after `--emit` for old
         // command lines. The previous order looked up `--emit` first, so the documented
         // `--emit --out file.dmpl` silently wrote to the default name instead.
-        let out = arg_value(&args, "--out")
-            .or_else(|| arg_value(&args, "--emit"))
-            .unwrap_or_else(|| "vinyl_out.dmpl".into());
+        let out = arg_value(&args, "--out").or_else(|| arg_value(&args, "--emit")).unwrap_or_else(|| "vinyl_out.dmpl".into());
         let pen_up = !args.iter().any(|a| a == "--cut");
         let code = app.emit(pen_up)?;
         fs::write(&out, &code)?;
@@ -138,10 +131,5 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
 /// The value after `key` on the command line, when it is not another flag.
 fn arg_value(args: &[String], key: &str) -> Option<String> {
-    args.iter()
-        .position(|a| a == key)
-        .and_then(|i| args.get(i + 1))
-        .filter(|v| !v.starts_with("--"))
-        .cloned()
+    args.iter().position(|a| a == key).and_then(|i| args.get(i + 1)).filter(|v| !v.starts_with("--")).cloned()
 }
-

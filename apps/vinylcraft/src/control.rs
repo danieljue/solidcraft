@@ -5,13 +5,13 @@
 //! same newline-delimited JSON-RPC the stdin server speaks, so one client parser serves both
 //! transports.
 
+use eframe::egui;
 use serde_json::{Value, json};
 use std::io::{BufRead, Write};
 use std::net::{TcpListener, TcpStream};
-use std::sync::mpsc;
 use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::mpsc;
 use std::time::Duration;
-use eframe::egui;
 
 use crate::jobs::CtrlMsg;
 use crate::tools::{rpc_error, vinyl_tools};
@@ -33,8 +33,7 @@ pub(crate) fn control_port_file() -> std::path::PathBuf {
 /// Serve control requests on 127.0.0.1. Binds the default port when free, otherwise an
 /// ephemeral one; the port is reported in the app log so a client can find it.
 pub(crate) fn spawn_control_server(tx: mpsc::Sender<CtrlMsg>, ctx: egui::Context) -> std::io::Result<u16> {
-    let listener = TcpListener::bind(("127.0.0.1", CONTROL_PORT_DEFAULT))
-        .or_else(|_| TcpListener::bind(("127.0.0.1", 0)))?;
+    let listener = TcpListener::bind(("127.0.0.1", CONTROL_PORT_DEFAULT)).or_else(|_| TcpListener::bind(("127.0.0.1", 0)))?;
     let port = listener.local_addr()?.port();
     std::thread::spawn(move || {
         for stream in listener.incoming().flatten() {
@@ -50,11 +49,7 @@ pub(crate) fn spawn_control_server(tx: mpsc::Sender<CtrlMsg>, ctx: egui::Context
 
 /// One client connection: newline-delimited JSON-RPC, the same shape as the stdin server so a
 /// client can speak either transport without changing its parser.
-pub(crate) fn handle_control_client(
-    stream: TcpStream,
-    tx: mpsc::Sender<CtrlMsg>,
-    ctx: egui::Context,
-) -> std::io::Result<()> {
+pub(crate) fn handle_control_client(stream: TcpStream, tx: mpsc::Sender<CtrlMsg>, ctx: egui::Context) -> std::io::Result<()> {
     let mut writer = stream.try_clone()?;
     let mut reader = std::io::BufReader::new(stream);
     let mut line = String::new();
@@ -106,11 +101,7 @@ pub(crate) fn handle_control_client(
                 let name = params.get("name").and_then(Value::as_str).unwrap_or("").to_string();
                 let arguments = params.get("arguments").cloned().unwrap_or(json!({}));
                 let (rtx, rrx) = mpsc::channel();
-                let _ = tx.send(CtrlMsg::Call {
-                    name: name.clone(),
-                    args: arguments,
-                    reply: rtx,
-                });
+                let _ = tx.send(CtrlMsg::Call { name: name.clone(), args: arguments, reply: rtx });
                 ctx.request_repaint();
                 match rrx.recv_timeout(Duration::from_secs(30)) {
                     Ok(Ok(v)) => Ok(json!({"content": [{"type": "text", "text": v.to_string()}]})),
@@ -135,8 +126,7 @@ pub(crate) fn handle_control_client(
 /// Send one request to a running GUI's control socket and return its reply.
 pub(crate) fn control_request(port: u16, req: Value) -> Result<Value, String> {
     let addr: std::net::SocketAddr = ([127, 0, 0, 1], port).into();
-    let mut stream = TcpStream::connect_timeout(&addr, Duration::from_secs(2))
-        .map_err(|e| format!("connect 127.0.0.1:{port}: {e}"))?;
+    let mut stream = TcpStream::connect_timeout(&addr, Duration::from_secs(2)).map_err(|e| format!("connect 127.0.0.1:{port}: {e}"))?;
     stream.set_read_timeout(Some(Duration::from_secs(10))).ok();
     stream.set_write_timeout(Some(Duration::from_secs(2))).ok();
     let mut line = req.to_string();
@@ -160,17 +150,13 @@ pub(crate) fn control_request(port: u16, req: Value) -> Result<Value, String> {
 pub(crate) fn quit_by_process_name() -> Result<(), Box<dyn std::error::Error>> {
     #[cfg(windows)]
     {
-        let me = std::env::current_exe()
-            .ok()
-            .and_then(|p| p.canonicalize().ok());
+        let me = std::env::current_exe().ok().and_then(|p| p.canonicalize().ok());
         // tasklist cannot show a process's path; WMI can. Ask for both id and path so each
         // candidate is checked before anything is terminated.
         let query = "Get-CimInstance Win32_Process -Filter \"Name='vinylcraft.exe'\" | \
                      ForEach-Object { $_.ProcessId.ToString() + \"`t\" + $_.ExecutablePath }";
-        let out = std::process::Command::new("powershell")
-            .args(["-NoProfile", "-Command", query])
-            .output()
-            .map_err(|e| format!("powershell: {e}"))?;
+        let out =
+            std::process::Command::new("powershell").args(["-NoProfile", "-Command", query]).output().map_err(|e| format!("powershell: {e}"))?;
         let text = String::from_utf8_lossy(&out.stdout);
         let mut killed = 0usize;
         for line in text.lines() {
@@ -186,20 +172,15 @@ pub(crate) fn quit_by_process_name() -> Result<(), Box<dyn std::error::Error>> {
                 continue;
             }
             let same = match (&me, path.trim()) {
-                (Some(m), p) if !p.is_empty() => std::path::Path::new(p)
-                    .canonicalize()
-                    .map(|q| &q == m)
-                    .unwrap_or(false),
+                (Some(m), p) if !p.is_empty() => std::path::Path::new(p).canonicalize().map(|q| &q == m).unwrap_or(false),
                 _ => false,
             };
             if !same {
                 eprintln!("skipping PID {pid} ({path}): not this executable");
                 continue;
             }
-            let status = std::process::Command::new("taskkill")
-                .args(["/PID", &pid.to_string(), "/F"])
-                .status()
-                .map_err(|e| format!("taskkill: {e}"))?;
+            let status =
+                std::process::Command::new("taskkill").args(["/PID", &pid.to_string(), "/F"]).status().map_err(|e| format!("taskkill: {e}"))?;
             if status.success() {
                 println!("terminated vinylcraft.exe (PID {pid})");
                 killed += 1;
@@ -208,10 +189,7 @@ pub(crate) fn quit_by_process_name() -> Result<(), Box<dyn std::error::Error>> {
             }
         }
         if killed == 0 {
-            return Err(
-                "no running vinylcraft.exe matched this executable's path; close the window manually"
-                    .into(),
-            );
+            return Err("no running vinylcraft.exe matched this executable's path; close the window manually".into());
         }
         Ok(())
     }
@@ -219,14 +197,8 @@ pub(crate) fn quit_by_process_name() -> Result<(), Box<dyn std::error::Error>> {
     {
         // On Unix, match on this executable's full path rather than a bare name that other
         // software may also use.
-        let me = std::env::current_exe()
-            .ok()
-            .and_then(|p| p.to_str().map(str::to_owned))
-            .unwrap_or_else(|| "vinylcraft".into());
-        let status = std::process::Command::new("pkill")
-            .args(["-f", &me])
-            .status()
-            .map_err(|e| format!("pkill: {e}"))?;
+        let me = std::env::current_exe().ok().and_then(|p| p.to_str().map(str::to_owned)).unwrap_or_else(|| "vinylcraft".into());
+        let status = std::process::Command::new("pkill").args(["-f", &me]).status().map_err(|e| format!("pkill: {e}"))?;
         if status.success() {
             println!("terminated {me}");
             Ok(())

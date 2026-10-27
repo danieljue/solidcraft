@@ -19,11 +19,7 @@ pub(crate) enum JobMsg {
 /// payload of that crossing.
 pub(crate) enum CtrlMsg {
     State(mpsc::Sender<Value>),
-    Call {
-        name: String,
-        args: Value,
-        reply: mpsc::Sender<Result<Value, String>>,
-    },
+    Call { name: String, args: Value, reply: mpsc::Sender<Result<Value, String>> },
 }
 
 /// One design queued for nesting.

@@ -50,11 +50,7 @@ mod tests {
             units_per_mm: 40.0,
             header: "IN;PA;".into(),
             footer: "@".into(),
-            serial: Some(crate::profile::SerialSettings {
-                port: "COM4".into(),
-                baud: 57600,
-                flow: FlowControl::RtsCts,
-            }),
+            serial: Some(crate::profile::SerialSettings { port: "COM4".into(), baud: 57600, flow: FlowControl::RtsCts }),
             overcut_mm: 0.0,
             ..MachineProfile::default()
         }
@@ -87,11 +83,7 @@ mod tests {
     fn overcut_follows_pen_state_on_dry_run() {
         let mut p = sc2();
         p.overcut_mm = 0.2;
-        let out = emit_with_pen(
-            &p,
-            &[Toolpath::rectangle(0.0, 0.0, 10.0, 10.0)],
-            Pen::Up,
-        );
+        let out = emit_with_pen(&p, &[Toolpath::rectangle(0.0, 0.0, 10.0, 10.0)], Pen::Up);
         assert_eq!(out, "IN;PA;U0,0;U400,0;U400,400;U0,400;U0,0;U8,0;@");
     }
 }

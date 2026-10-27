@@ -43,12 +43,7 @@ impl Toolpath {
         let c = Point::new(x + w, y + h);
         let d = Point::new(x, y + h);
         Self {
-            segments: vec![
-                Segment::Line { a, b },
-                Segment::Line { a: b, b: c },
-                Segment::Line { a: c, b: d },
-                Segment::Line { a: d, b: a },
-            ],
+            segments: vec![Segment::Line { a, b }, Segment::Line { a: b, b: c }, Segment::Line { a: c, b: d }, Segment::Line { a: d, b: a }],
             closed: true,
         }
     }
@@ -56,18 +51,12 @@ impl Toolpath {
     /// A circle as two counter-clockwise half arcs, so a post-processor that understands
     /// arcs can emit two commands instead of tessellating the whole curve.
     pub fn circle(center: Point, radius: f64) -> Self {
-        Self {
-            segments: solidcraft_geom::Loop2::circle(center, radius).segs,
-            closed: true,
-        }
+        Self { segments: solidcraft_geom::Loop2::circle(center, radius).segs, closed: true }
     }
 
     /// A toolpath that follows `points` in order, one straight segment per pair.
     pub fn from_polyline(points: &[Point], closed: bool) -> Self {
-        let mut segments: Vec<Segment> = points
-            .windows(2)
-            .map(|w| Segment::Line { a: w[0], b: w[1] })
-            .collect();
+        let mut segments: Vec<Segment> = points.windows(2).map(|w| Segment::Line { a: w[0], b: w[1] }).collect();
         if closed {
             if let (Some(first), Some(last)) = (points.first(), points.last()) {
                 if first != last {
@@ -214,11 +203,7 @@ mod tests {
 
     #[test]
     fn from_polyline_closes_without_duplicating_the_first_point() {
-        let pts = vec![
-            Point::new(0.0, 0.0),
-            Point::new(10.0, 0.0),
-            Point::new(10.0, 10.0),
-        ];
+        let pts = vec![Point::new(0.0, 0.0), Point::new(10.0, 0.0), Point::new(10.0, 10.0)];
         let tp = Toolpath::from_polyline(&pts, true);
         assert_eq!(tp.segments.len(), 3);
         assert!(tp.closed);

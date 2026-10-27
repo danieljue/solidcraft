@@ -28,13 +28,7 @@ pub struct TileOptions {
 
 impl Default for TileOptions {
     fn default() -> Self {
-        Self {
-            tile_w: 300.0,
-            tile_h: 300.0,
-            overlap_mm: 2.0,
-            box_around_tile: false,
-            box_margin_mm: 0.0,
-        }
+        Self { tile_w: 300.0, tile_h: 300.0, overlap_mm: 2.0, box_around_tile: false, box_margin_mm: 0.0 }
     }
 }
 
@@ -86,11 +80,7 @@ pub fn tile(toolpaths: &[Toolpath], bbox: (Point, Point), opts: &TileOptions) ->
                     opts.tile_h + 2.0 * opts.box_margin_mm,
                 ));
             }
-            tiles.push(Tile {
-                index: (ix, iy),
-                origin: Point::new(x0, y0),
-                toolpaths: clipped,
-            });
+            tiles.push(Tile { index: (ix, iy), origin: Point::new(x0, y0), toolpaths: clipped });
         }
     }
     tiles
@@ -127,10 +117,7 @@ fn clip_toolpath(tp: &Toolpath, rect: (f64, f64, f64, f64)) -> Vec<Toolpath> {
 
 fn flush(run: &mut Vec<Segment>, out: &mut Vec<Toolpath>) {
     if !run.is_empty() {
-        out.push(Toolpath {
-            segments: std::mem::take(run),
-            closed: false,
-        });
+        out.push(Toolpath { segments: std::mem::take(run), closed: false });
     }
 }
 
@@ -148,12 +135,7 @@ fn clip_segment(seg: &Segment, rect: (f64, f64, f64, f64)) -> Option<Segment> {
     let mut t1 = 1.0f64;
     // Four edges: left, right, bottom, top. For each, p is the direction and q the distance
     // from the start to the edge.
-    for (p, q) in [
-        (-dx, a.x - x0),
-        (dx, x1 - a.x),
-        (-dy, a.y - y0),
-        (dy, y1 - a.y),
-    ] {
+    for (p, q) in [(-dx, a.x - x0), (dx, x1 - a.x), (-dy, a.y - y0), (dy, y1 - a.y)] {
         if p.abs() < 1e-12 {
             // Parallel to this edge: keep only if already inside it.
             if q < 0.0 {
@@ -200,11 +182,7 @@ mod tests {
     #[test]
     fn small_design_is_a_single_tile() {
         let tp = Toolpath::rectangle(10.0, 10.0, 20.0, 20.0);
-        let opts = TileOptions {
-            tile_w: 300.0,
-            tile_h: 300.0,
-            ..Default::default()
-        };
+        let opts = TileOptions { tile_w: 300.0, tile_h: 300.0, ..Default::default() };
         let tiles = tile(&[tp.clone()], bbox(), &opts);
         assert_eq!(tiles.len(), 1);
         assert_eq!(tiles[0].index, (0, 0));
@@ -216,20 +194,8 @@ mod tests {
     #[test]
     fn wide_design_splits_into_columns_with_overlap() {
         // 100 mm wide, 40 mm tiles, 4 mm overlap -> advance 36 mm -> 3 columns.
-        let tp = Toolpath {
-            segments: vec![Segment::Line {
-                a: Point::new(0.0, 50.0),
-                b: Point::new(100.0, 50.0),
-            }],
-            closed: false,
-        };
-        let opts = TileOptions {
-            tile_w: 40.0,
-            tile_h: 40.0,
-            overlap_mm: 4.0,
-            box_around_tile: false,
-            box_margin_mm: 0.0,
-        };
+        let tp = Toolpath { segments: vec![Segment::Line { a: Point::new(0.0, 50.0), b: Point::new(100.0, 50.0) }], closed: false };
+        let opts = TileOptions { tile_w: 40.0, tile_h: 40.0, overlap_mm: 4.0, box_around_tile: false, box_margin_mm: 0.0 };
         let tiles = tile(&[tp], bbox(), &opts);
         assert_eq!(tiles.len(), 3, "expected 3 columns, got {}", tiles.len());
         // A horizontal line only crosses the middle row, so the surviving tiles are
@@ -252,29 +218,16 @@ mod tests {
     #[test]
     fn box_around_tile_adds_a_closed_rectangle() {
         let tp = Toolpath::rectangle(10.0, 10.0, 20.0, 20.0);
-        let opts = TileOptions {
-            tile_w: 300.0,
-            tile_h: 300.0,
-            overlap_mm: 2.0,
-            box_around_tile: true,
-            box_margin_mm: 1.0,
-        };
+        let opts = TileOptions { tile_w: 300.0, tile_h: 300.0, overlap_mm: 2.0, box_around_tile: true, box_margin_mm: 1.0 };
         let tiles = tile(&[tp], bbox(), &opts);
         assert_eq!(tiles.len(), 1);
         let boxes: Vec<&Toolpath> = tiles[0].toolpaths.iter().filter(|t| t.closed).collect();
-        assert!(
-            boxes.iter().any(|b| b.segments.len() == 4 && b.length_mm() > 250.0),
-            "expected the tile box among {:?}",
-            tiles[0].toolpaths.len()
-        );
+        assert!(boxes.iter().any(|b| b.segments.len() == 4 && b.length_mm() > 250.0), "expected the tile box among {:?}", tiles[0].toolpaths.len());
     }
 
     #[test]
     fn segment_crossing_a_tile_edge_is_trimmed_exactly() {
-        let seg = Segment::Line {
-            a: Point::new(-10.0, 50.0),
-            b: Point::new(10.0, 50.0),
-        };
+        let seg = Segment::Line { a: Point::new(-10.0, 50.0), b: Point::new(10.0, 50.0) };
         let clipped = clip_segment(&seg, (0.0, 0.0, 100.0, 100.0)).unwrap();
         assert_eq!(clipped.start(), Point::new(0.0, 50.0));
         assert_eq!(clipped.end(), Point::new(10.0, 50.0));
@@ -282,10 +235,7 @@ mod tests {
 
     #[test]
     fn segment_entirely_outside_is_dropped() {
-        let seg = Segment::Line {
-            a: Point::new(-20.0, -20.0),
-            b: Point::new(-10.0, -10.0),
-        };
+        let seg = Segment::Line { a: Point::new(-20.0, -20.0), b: Point::new(-10.0, -10.0) };
         assert!(clip_segment(&seg, (0.0, 0.0, 100.0, 100.0)).is_none());
     }
 }

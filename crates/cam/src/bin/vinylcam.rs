@@ -17,12 +17,7 @@ fn main() -> Result<(), Box<dyn Error>> {
     }
 
     let profile: MachineProfile = serde_json::from_str(&fs::read_to_string(&args[1])?)?;
-    let size = args
-        .iter()
-        .position(|a| a == "--square")
-        .and_then(|i| args.get(i + 1))
-        .and_then(|s| s.parse::<f64>().ok())
-        .unwrap_or(10.0);
+    let size = args.iter().position(|a| a == "--square").and_then(|i| args.get(i + 1)).and_then(|s| s.parse::<f64>().ok()).unwrap_or(10.0);
 
     let toolpath = Toolpath::rectangle(0.0, 0.0, size, size);
     let out = post::emit(&profile, &[toolpath])?;

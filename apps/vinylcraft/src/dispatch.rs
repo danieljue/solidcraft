@@ -4,7 +4,7 @@
 //! GUI. Keeping it separate from the model makes the tool surface easy to read and test.
 
 use serde_json::{Value, json};
-use solidcraft_cam::align::{solve as solve_alignment, Similarity};
+use solidcraft_cam::align::{Similarity, solve as solve_alignment};
 use solidcraft_cam::boolean::{BooleanOp, FillMode};
 use solidcraft_cam::profile::ToolPreset;
 use solidcraft_geom::Vec2;
@@ -16,11 +16,11 @@ use std::sync::atomic::Ordering;
 use std::time::Duration;
 
 use crate::app::VinylApp;
-use crate::geometry::*;
-use crate::tools::*;
-use crate::jobs::*;
 use crate::control::*;
+use crate::geometry::*;
+use crate::jobs::*;
 use crate::serial::scan_ports;
+use crate::tools::*;
 
 /// Wait for the background serial thread to report, up to ~5 s (short commands only).
 fn wait_for_job(app: &mut VinylApp) {
@@ -191,15 +191,9 @@ pub(crate) fn call_vinyl_tool(app: &mut VinylApp, name: &str, args: &Value) -> R
         }
         "vinyl_export" => {
             let path = args.get("path").and_then(Value::as_str).ok_or("missing `path`")?;
-            let format = args
-                .get("format")
-                .and_then(Value::as_str)
-                .unwrap_or("svg")
-                .to_ascii_lowercase();
+            let format = args.get("format").and_then(Value::as_str).unwrap_or("svg").to_ascii_lowercase();
             if format != "svg" {
-                return Err(format!(
-                    "unsupported format {format:?}; only \"svg\" is supported"
-                ));
+                return Err(format!("unsupported format {format:?}; only \"svg\" is supported"));
             }
             let svg = app.export_svg();
             fs::write(path, &svg).map_err(|e| format!("{path}: {e}"))?;
@@ -248,10 +242,7 @@ pub(crate) fn call_vinyl_tool(app: &mut VinylApp, name: &str, args: &Value) -> R
         "vinyl_offset" => {
             // Required: an outline with no distance is meaningless. A caller that omits it gets
             // a named error rather than a silent zero-offset no-op.
-            let distance = args
-                .get("distance_mm")
-                .and_then(Value::as_f64)
-                .ok_or("missing `distance_mm`")?;
+            let distance = args.get("distance_mm").and_then(Value::as_f64).ok_or("missing `distance_mm`")?;
             let keep = args.get("keep_original").and_then(Value::as_bool).unwrap_or(false);
             let (offset_count, skipped_open, dropped) = app.offset_design(distance, keep);
             // The full state goes back plus the offset diagnostics, flat rather than nested so
@@ -274,8 +265,7 @@ pub(crate) fn call_vinyl_tool(app: &mut VinylApp, name: &str, args: &Value) -> R
             let y = args.get("y").and_then(Value::as_f64).unwrap_or(0.0);
             let height = args.get("height_mm").and_then(Value::as_f64).unwrap_or(10.0);
             let angle_deg = args.get("angle_deg").and_then(Value::as_f64).unwrap_or(0.0);
-            let (contours, segments) =
-                app.add_text(text, Vec2::new(x, y), height, angle_deg.to_radians())?;
+            let (contours, segments) = app.add_text(text, Vec2::new(x, y), height, angle_deg.to_radians())?;
             let mut state = state_json(app);
             if let Some(obj) = state.as_object_mut() {
                 obj.insert("text_contours".into(), json!(contours));
@@ -286,10 +276,7 @@ pub(crate) fn call_vinyl_tool(app: &mut VinylApp, name: &str, args: &Value) -> R
         "vinyl_boolean" => {
             // Required: without an operation there is nothing to apply. Name the error instead of
             // defaulting to a union the caller may not have wanted.
-            let op_name = args
-                .get("operation")
-                .and_then(Value::as_str)
-                .ok_or("missing `operation`")?;
+            let op_name = args.get("operation").and_then(Value::as_str).ok_or("missing `operation`")?;
             // Accept the sign-shop vocabulary as well as the engine's: "weld" and "trim" are what
             // sign shops call union and difference, and refusing them would make the
             // tool harder to use than the thing it replaces.
@@ -299,9 +286,7 @@ pub(crate) fn call_vinyl_tool(app: &mut VinylApp, name: &str, args: &Value) -> R
                 "intersect" => BooleanOp::Intersect,
                 "xor" | "exclude" => BooleanOp::Xor,
                 other => {
-                    return Err(format!(
-                        "unknown operation {other:?}; expected union, difference, intersect or xor"
-                    ));
+                    return Err(format!("unknown operation {other:?}; expected union, difference, intersect or xor"));
                 }
             };
             let fill = match args.get("fill_mode").and_then(Value::as_str) {
@@ -314,24 +299,13 @@ pub(crate) fn call_vinyl_tool(app: &mut VinylApp, name: &str, args: &Value) -> R
             // The clip rectangle is all-or-nothing. Three sides without the fourth is a mistake,
             // not a default, so it is named rather than silently completed from zero.
             let clip_keys = ["clip_x", "clip_y", "clip_width", "clip_height"];
-            let present: Vec<Option<f64>> = clip_keys
-                .iter()
-                .map(|k| args.get(*k).and_then(Value::as_f64))
-                .collect();
+            let present: Vec<Option<f64>> = clip_keys.iter().map(|k| args.get(*k).and_then(Value::as_f64)).collect();
             let given = present.iter().filter(|v| v.is_some()).count();
             let clip = match given {
                 0 => None,
-                4 => Some((
-                    present[0].unwrap_or(0.0),
-                    present[1].unwrap_or(0.0),
-                    present[2].unwrap_or(0.0),
-                    present[3].unwrap_or(0.0),
-                )),
+                4 => Some((present[0].unwrap_or(0.0), present[1].unwrap_or(0.0), present[2].unwrap_or(0.0), present[3].unwrap_or(0.0))),
                 _ => {
-                    return Err(
-                        "clip needs all of clip_x, clip_y, clip_width and clip_height, or none"
-                            .into(),
-                    );
+                    return Err("clip needs all of clip_x, clip_y, clip_width and clip_height, or none".into());
                 }
             };
             let (out_count, passed_open, skipped) = app.boolean_design(op, fill, clip);
@@ -395,22 +369,10 @@ pub(crate) fn call_vinyl_tool(app: &mut VinylApp, name: &str, args: &Value) -> R
                     app.profile.active_tool = None;
                     changed.push("active_tool");
                 } else if let Some(name) = v.as_str() {
-                    let known = app
-                        .profile
-                        .tool_presets
-                        .iter()
-                        .any(|p| p.name.eq_ignore_ascii_case(name));
+                    let known = app.profile.tool_presets.iter().any(|p| p.name.eq_ignore_ascii_case(name));
                     if !known && !app.profile.tool_presets.is_empty() {
-                        let available: Vec<&str> = app
-                            .profile
-                            .tool_presets
-                            .iter()
-                            .map(|p| p.name.as_str())
-                            .collect();
-                        return Err(format!(
-                            "no tool preset named {name:?}; available: {}",
-                            available.join(", ")
-                        ));
+                        let available: Vec<&str> = app.profile.tool_presets.iter().map(|p| p.name.as_str()).collect();
+                        return Err(format!("no tool preset named {name:?}; available: {}", available.join(", ")));
                     }
                     app.profile.active_tool = Some(name.to_string());
                     changed.push("active_tool");
@@ -430,16 +392,8 @@ pub(crate) fn call_vinyl_tool(app: &mut VinylApp, name: &str, args: &Value) -> R
                             name: name.to_string(),
                             force: item.get("force").and_then(Value::as_f64),
                             speed: item.get("speed").and_then(Value::as_f64),
-                            blade_offset_mm: item
-                                .get("blade_offset_mm")
-                                .and_then(Value::as_f64)
-                                .unwrap_or(0.0)
-                                .clamp(0.0, 2.0),
-                            repeat_passes: item
-                                .get("repeat_passes")
-                                .and_then(Value::as_u64)
-                                .unwrap_or(0)
-                                .min(10) as u32,
+                            blade_offset_mm: item.get("blade_offset_mm").and_then(Value::as_f64).unwrap_or(0.0).clamp(0.0, 2.0),
+                            repeat_passes: item.get("repeat_passes").and_then(Value::as_u64).unwrap_or(0).min(10) as u32,
                         });
                     }
                     app.profile.tool_presets = presets;
@@ -475,14 +429,8 @@ pub(crate) fn call_vinyl_tool(app: &mut VinylApp, name: &str, args: &Value) -> R
                         "preview": code.chars().take(120).collect::<String>(),
                     });
                     if let Some(dir) = dir {
-                        let stem = dir
-                            .file_stem()
-                            .map(|s| s.to_string_lossy().to_string())
-                            .unwrap_or_else(|| "tile".into());
-                        let ext = dir
-                            .extension()
-                            .map(|s| s.to_string_lossy().to_string())
-                            .unwrap_or_else(|| "dmpl".into());
+                        let stem = dir.file_stem().map(|s| s.to_string_lossy().to_string()).unwrap_or_else(|| "tile".into());
+                        let ext = dir.extension().map(|s| s.to_string_lossy().to_string()).unwrap_or_else(|| "dmpl".into());
                         let name = format!("{stem}_{}_{}.{ext}", tile.index.0, tile.index.1);
                         let p = dir.with_file_name(name);
                         fs::write(&p, code).map_err(|e| format!("{}: {e}", p.display()))?;
@@ -592,41 +540,24 @@ pub(crate) fn call_vinyl_tool(app: &mut VinylApp, name: &str, args: &Value) -> R
                     app.log("registration marks off");
                 }
                 _ => {
-                    let mut cfg = app
-                        .marks
-                        .clone()
-                        .unwrap_or_else(solidcraft_cam::marks::MarkConfig::default);
+                    let mut cfg = app.marks.clone().unwrap_or_else(solidcraft_cam::marks::MarkConfig::default);
                     if let Some(style) = args.get("style").and_then(Value::as_str) {
                         let size = args.get("size_mm").and_then(Value::as_f64).unwrap_or(5.0);
                         cfg.style = match style {
                             "cross" => solidcraft_cam::marks::MarkStyle::Cross { size_mm: size },
                             "circle_cross" => {
-                                let segments = args
-                                    .get("segments")
-                                    .and_then(Value::as_u64)
-                                    .unwrap_or(16)
-                                    .clamp(4, 128) as usize;
-                                solidcraft_cam::marks::MarkStyle::CircleCross {
-                                    diameter_mm: size,
-                                    segments,
-                                }
+                                let segments = args.get("segments").and_then(Value::as_u64).unwrap_or(16).clamp(4, 128) as usize;
+                                solidcraft_cam::marks::MarkStyle::CircleCross { diameter_mm: size, segments }
                             }
                             _ => solidcraft_cam::marks::MarkStyle::CornerL { size_mm: size },
                         };
                     } else if let Some(size) = args.get("size_mm").and_then(Value::as_f64) {
                         // Size without a style keeps the current style but resizes it.
                         cfg.style = match cfg.style {
-                            solidcraft_cam::marks::MarkStyle::CornerL { .. } => {
-                                solidcraft_cam::marks::MarkStyle::CornerL { size_mm: size }
-                            }
-                            solidcraft_cam::marks::MarkStyle::Cross { .. } => {
-                                solidcraft_cam::marks::MarkStyle::Cross { size_mm: size }
-                            }
+                            solidcraft_cam::marks::MarkStyle::CornerL { .. } => solidcraft_cam::marks::MarkStyle::CornerL { size_mm: size },
+                            solidcraft_cam::marks::MarkStyle::Cross { .. } => solidcraft_cam::marks::MarkStyle::Cross { size_mm: size },
                             solidcraft_cam::marks::MarkStyle::CircleCross { segments, .. } => {
-                                solidcraft_cam::marks::MarkStyle::CircleCross {
-                                    diameter_mm: size,
-                                    segments,
-                                }
+                                solidcraft_cam::marks::MarkStyle::CircleCross { diameter_mm: size, segments }
                             }
                         };
                     }
@@ -653,11 +584,7 @@ pub(crate) fn call_vinyl_tool(app: &mut VinylApp, name: &str, args: &Value) -> R
                     app.log("weed box off");
                 }
                 _ => {
-                    let m = args
-                        .get("margin_mm")
-                        .and_then(Value::as_f64)
-                        .unwrap_or(3.0)
-                        .clamp(0.0, 100.0);
+                    let m = args.get("margin_mm").and_then(Value::as_f64).unwrap_or(3.0).clamp(0.0, 100.0);
                     app.weed_box_mm = Some(m);
                     app.log(format!("weed box on at {m:.1} mm"));
                 }
@@ -671,11 +598,7 @@ pub(crate) fn call_vinyl_tool(app: &mut VinylApp, name: &str, args: &Value) -> R
                     app.log("lift marks off");
                 }
                 _ => {
-                    let s = args
-                        .get("size_mm")
-                        .and_then(Value::as_f64)
-                        .unwrap_or(2.0)
-                        .clamp(0.1, 20.0);
+                    let s = args.get("size_mm").and_then(Value::as_f64).unwrap_or(2.0).clamp(0.1, 20.0);
                     app.lift_marks_mm = Some(s);
                     app.log(format!("lift marks on at {s:.1} mm"));
                 }
@@ -689,10 +612,7 @@ pub(crate) fn call_vinyl_tool(app: &mut VinylApp, name: &str, args: &Value) -> R
                     app.log("tiling off");
                 }
                 _ => {
-                    let mut opts = app
-                        .tile_opts
-                        .clone()
-                        .unwrap_or_else(solidcraft_cam::tile::TileOptions::default);
+                    let mut opts = app.tile_opts.clone().unwrap_or_else(solidcraft_cam::tile::TileOptions::default);
                     if let Some(v) = args.get("tile_w").and_then(Value::as_f64) {
                         opts.tile_w = v.clamp(10.0, 10000.0);
                     }
@@ -720,16 +640,8 @@ pub(crate) fn call_vinyl_tool(app: &mut VinylApp, name: &str, args: &Value) -> R
                 return Err("nothing to queue: load a design first".into());
             }
             let colors = app.transformed_colors();
-            let base_name = args
-                .get("name")
-                .and_then(Value::as_str)
-                .map(|s| s.to_string())
-                .unwrap_or_else(|| format!("job_{}", app.jobs.len() + 1));
-            let explicit_color = args
-                .get("color")
-                .and_then(Value::as_str)
-                .unwrap_or("")
-                .to_string();
+            let base_name = args.get("name").and_then(Value::as_str).map(|s| s.to_string()).unwrap_or_else(|| format!("job_{}", app.jobs.len() + 1));
+            let explicit_color = args.get("color").and_then(Value::as_str).unwrap_or("").to_string();
 
             // A cutter holds one vinyl colour at a time, so a design that carries several
             // colours must become several jobs: one per colour. A single-colour design (or one
@@ -755,34 +667,17 @@ pub(crate) fn call_vinyl_tool(app: &mut VinylApp, name: &str, args: &Value) -> R
                     let label = c_opt.unwrap_or_else(|| "unlabelled".into());
                     let name = format!("{base_name} [{label}]");
                     let b = bbox_of(&group_polys);
-                    app.jobs.push(Job {
-                        name: name.clone(),
-                        polylines: group_polys,
-                        color: label.clone(),
-                    });
-                    app.log(format!(
-                        "queued job {name} ({:.1} x {:.1} mm); {} job(s) in the batch",
-                        b.1.x - b.0.x,
-                        b.1.y - b.0.y,
-                        app.jobs.len()
-                    ));
+                    app.jobs.push(Job { name: name.clone(), polylines: group_polys, color: label.clone() });
+                    app.log(format!("queued job {name} ({:.1} x {:.1} mm); {} job(s) in the batch", b.1.x - b.0.x, b.1.y - b.0.y, app.jobs.len()));
                     queued_names.push(name);
                 }
             } else {
                 // Single job: either an explicit colour override or an unlabelled design.
                 let b = bbox_of(&polys);
-                app.jobs.push(Job {
-                    name: base_name.clone(),
-                    polylines: polys,
-                    color: explicit_color.clone(),
-                });
+                app.jobs.push(Job { name: base_name.clone(), polylines: polys, color: explicit_color.clone() });
                 app.log(format!(
                     "queued job {base_name}{} ({:.1} x {:.1} mm); {} job(s) in the batch",
-                    if explicit_color.is_empty() {
-                        String::new()
-                    } else {
-                        format!(" [{}]", explicit_color)
-                    },
+                    if explicit_color.is_empty() { String::new() } else { format!(" [{}]", explicit_color) },
                     b.1.x - b.0.x,
                     b.1.y - b.0.y,
                     app.jobs.len()
@@ -822,31 +717,17 @@ pub(crate) fn call_vinyl_tool(app: &mut VinylApp, name: &str, args: &Value) -> R
             Ok(json!({"cleared": n, "state": state_json(app)}))
         }
         "vinyl_nest" => {
-            let gap = args
-                .get("gap_mm")
-                .and_then(Value::as_f64)
-                .unwrap_or(2.0)
-                .clamp(0.0, 20.0);
-            let allow_rotation = args
-                .get("allow_rotation")
-                .and_then(Value::as_bool)
-                .unwrap_or(true);
-            let pen_up = args
-                .get("pen_up")
-                .and_then(Value::as_bool)
-                .unwrap_or(app.pen_up_only);
+            let gap = args.get("gap_mm").and_then(Value::as_f64).unwrap_or(2.0).clamp(0.0, 20.0);
+            let allow_rotation = args.get("allow_rotation").and_then(Value::as_bool).unwrap_or(true);
+            let pen_up = args.get("pen_up").and_then(Value::as_bool).unwrap_or(app.pen_up_only);
             let groups = app.emit_nested(pen_up, gap, allow_rotation)?;
             // One command stream per colour group. Roll nesting packs only the
             // Cutfiles that share a colour into one queue, because a cutter holds one vinyl
             // colour at a time. Each group is reported separately so the operator knows how
             // much vinyl each colour consumes and where each part sits.
             let dir = args.get("path").and_then(Value::as_str).map(Path::new);
-            let stem = dir
-                .and_then(|d| d.file_stem().map(|s| s.to_string_lossy().to_string()))
-                .unwrap_or_else(|| "nest".into());
-            let ext = dir
-                .and_then(|d| d.extension().map(|s| s.to_string_lossy().to_string()))
-                .unwrap_or_else(|| "dmpl".into());
+            let stem = dir.and_then(|d| d.file_stem().map(|s| s.to_string_lossy().to_string())).unwrap_or_else(|| "nest".into());
+            let ext = dir.and_then(|d| d.extension().map(|s| s.to_string_lossy().to_string())).unwrap_or_else(|| "dmpl".into());
             let mut rows: Vec<Value> = Vec::with_capacity(groups.len());
             let mut total_placed = 0usize;
             let mut total_unplaced = 0usize;
@@ -922,10 +803,7 @@ pub(crate) fn call_vinyl_tool(app: &mut VinylApp, name: &str, args: &Value) -> R
             Ok(json!({"ports": ports, "active": app.port_name}))
         }
         "vinyl_set_port" => {
-            let port = args
-                .get("port")
-                .and_then(Value::as_str)
-                .ok_or_else(|| "vinyl_set_port needs `port`".to_string())?;
+            let port = args.get("port").and_then(Value::as_str).ok_or_else(|| "vinyl_set_port needs `port`".to_string())?;
             let baud = args.get("baud").and_then(Value::as_u64).map(|b| b as u32);
             // Rescan now: the cutter verdict must reflect what is plugged in at the moment of
             // the call, not what was plugged in when the app started.
@@ -946,13 +824,8 @@ pub(crate) fn call_vinyl_tool(app: &mut VinylApp, name: &str, args: &Value) -> R
                 Some(p) if cutter => {
                     format!("port set to {} ({}) — cutter bridge", p.name, p.label)
                 }
-                Some(p) => format!(
-                    "port set to {} ({}) — WARNING: not a known cutter bridge",
-                    p.name, p.label
-                ),
-                None => format!(
-                    "port set to {port} — WARNING: not in the scanned port list (may be a phantom device)"
-                ),
+                Some(p) => format!("port set to {} ({}) — WARNING: not a known cutter bridge", p.name, p.label),
+                None => format!("port set to {port} — WARNING: not in the scanned port list (may be a phantom device)"),
             };
             app.log(msg.clone());
             Ok(json!({"port": app.port_name, "baud": app.baud, "cutter": cutter, "status": msg}))
@@ -970,10 +843,7 @@ pub(crate) fn call_vinyl_tool(app: &mut VinylApp, name: &str, args: &Value) -> R
             let b = xf.b;
             app.scale = xf.scale();
             app.rotation = xf.rotation_rad();
-            app.offset = Vec2::new(
-                xf.tx - center.x + a * center.x - b * center.y,
-                xf.ty - center.y + b * center.x + a * center.y,
-            );
+            app.offset = Vec2::new(xf.tx - center.x + a * center.x - b * center.y, xf.ty - center.y + b * center.x + a * center.y);
             app.log(format!(
                 "Alignment applied from {} marks: scale {:.4}, rotation {:.2}°, offset ({:.2}, {:.2})",
                 design.len(),
@@ -1037,10 +907,7 @@ pub(crate) fn run_mcp(mut app: VinylApp) -> std::io::Result<()> {
         let params = msg.get("params").cloned().unwrap_or(Value::Null);
         let reply: Result<Value, (i64, String)> = match method {
             "initialize" => {
-                let v = params
-                    .get("protocolVersion")
-                    .and_then(Value::as_str)
-                    .unwrap_or("2025-06-18");
+                let v = params.get("protocolVersion").and_then(Value::as_str).unwrap_or("2025-06-18");
                 Ok(json!({
                     "protocolVersion": v,
                     "capabilities": {"tools": {}},
