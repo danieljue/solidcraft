@@ -54,7 +54,16 @@ const EPS: f64 = 1e-9;
 /// distinct vertices, zero area, or not closed).
 ///
 /// Corners are rounded with arcs of radius `|distance|`. The input's winding is preserved.
+///
+/// Curves are flattened at [`DEFAULT_FLATTEN_TOL_MM`](crate::geom::DEFAULT_FLATTEN_TOL_MM)
+/// before offsetting. A caller that knows the process's own tolerance — a torch is happy with
+/// coarser chords than a knife — should use [`offset_closed_with_tolerance`].
 pub fn offset_closed(toolpath: &Toolpath, distance: f64) -> Vec<Toolpath> {
+    offset_closed_with_tolerance(toolpath, distance, crate::geom::DEFAULT_FLATTEN_TOL_MM)
+}
+
+/// [`offset_closed`] with the chord tolerance the caller's process needs.
+pub fn offset_closed_with_tolerance(toolpath: &Toolpath, distance: f64, flatten_tol_mm: f64) -> Vec<Toolpath> {
     // A zero offset is the identity. Returning the input unchanged is both correct and the
     // least surprising thing to do.
     if distance.abs() < EPS {
@@ -66,7 +75,7 @@ pub fn offset_closed(toolpath: &Toolpath, distance: f64) -> Vec<Toolpath> {
 
     // Offset reasons about a polygon, so a curve has to become chords first; taking a
     // segment's start point alone would drop the whole curve.
-    let flat = toolpath.flattened(crate::geom::DEFAULT_FLATTEN_TOL_MM);
+    let flat = toolpath.flattened(flatten_tol_mm.max(0.0));
     let mut pts = contour_points(&flat);
     dedupe(&mut pts);
     if pts.len() < 3 {

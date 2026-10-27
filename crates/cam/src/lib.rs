@@ -14,6 +14,7 @@ pub mod marks;
 pub mod nest;
 pub mod offset;
 pub mod post;
+pub mod process;
 pub mod profile;
 pub mod tile;
 
@@ -26,6 +27,7 @@ pub use filters::apply as apply_filters;
 pub use geom::{Point, Segment, Toolpath};
 pub use marks::{MarkConfig, MarkPlacement, MarkStyle};
 pub use nest::{NestOptions, NestResult, Placed, bounds, nest as nest_jobs};
-pub use offset::offset_closed;
+pub use offset::{offset_closed, offset_closed_with_tolerance};
+pub use process::Process;
 pub use profile::{FlowControl, MachineProfile, Protocol, SerialSettings, ToolPreset, USCUTTER_SC2_PROFILE_JSON};
 pub use tile::{Tile, TileOptions};

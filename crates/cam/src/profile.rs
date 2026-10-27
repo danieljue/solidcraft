@@ -5,6 +5,8 @@
 
 use serde::{Deserialize, Serialize};
 
+use crate::process::Process;
+
 /// Number formatting for a machine command: whole values stay whole, fractions keep up
 /// to two decimals. Cutter firmware rejects `400.0` where it expects `400`.
 pub fn fmt_num(v: f64) -> String {
@@ -20,6 +22,11 @@ pub fn fmt_num(v: f64) -> String {
 pub struct MachineProfile {
     pub name: String,
     pub protocol: Protocol,
+    /// What the machine does to the material. A profile that does not name one is a vinyl
+    /// cutter, which is what this crate grew out of; a plasma table, laser or router sets its
+    /// own and the same toolpath code compensates for its cut width.
+    #[serde(default)]
+    pub process: Process,
     pub units_per_mm: f64,
     pub header: String,
     pub footer: String,
@@ -195,6 +202,7 @@ impl Default for MachineProfile {
         Self {
             name: "Unnamed cutter".into(),
             protocol: Protocol::Dmpl,
+            process: Process::default(),
             units_per_mm: 40.0,
             header: String::new(),
             footer: String::new(),
@@ -299,6 +307,14 @@ mod tests {
         assert!(csr.header.is_empty(), "CSR declares no header; a prefix would be rejected: {:?}", csr.header);
         assert!(csr.footer.is_empty(), "CSR declares no footer; a suffix would be rejected: {:?}", csr.footer);
         assert!((csr.units_per_mm - 40.0).abs() < 1e-9, "CSR units_per_mm must survive parsing, got {}", csr.units_per_mm);
+
+        // A plasma table speaks G-code but is not a vinyl cutter: the process is what carries
+        // the cut width, and losing it would silently cut every part undersized.
+        let plasma: MachineProfile = serde_json::from_str(include_str!("../profiles/plasma_gcode.json")).expect("plasma_gcode.json parses");
+        assert_eq!(plasma.protocol, Protocol::Gcode);
+        assert_eq!(plasma.process, Process::Plasma { kerf_mm: 1.5 });
+        assert!((plasma.process.half_kerf_mm() - 0.75).abs() < 1e-12);
+        assert!((plasma.arc_tolerance_mm - 0.2).abs() < 1e-12, "a torch wants coarser chords than a knife");
     }
 
     #[test]

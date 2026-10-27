@@ -1,0 +1,22 @@
+{
+  "name": "Generic plasma table (G-code)",
+  "protocol": "gcode",
+  "units_per_mm": 1.0,
+  "process": {
+    "plasma": {
+      "kerf_mm": 1.5
+    }
+  },
+  "header": "G21;G90;G94;\n",
+  "footer": "M5\nG0 Z5\nM2\n",
+  "_comment": "G-code for a plasma table. G21/G90 select millimetres and absolute moves; G94 is feed per minute. The 1.5 mm kerf is the full cut width: the post-processor's caller offsets outer contours outward and holes inward by half of it. A real machine needs its own pierce height, cut height and feed in the header, and a lead-in long enough to keep the pierce crater off the part; both are machine and material settings this profile does not guess.",
+  "blade_offset_mm": 0.0,
+  "min_line_mm": 0.0,
+  "linemerge_tol_mm": 0.0,
+  "repeat_passes": 1,
+  "overcut_mm": 0.0,
+  "arc_tolerance_mm": 0.2,
+  "max_x_mm": 3000.0,
+  "max_y_mm": 1500.0,
+  "serial": null
+}

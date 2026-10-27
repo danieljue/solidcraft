@@ -42,6 +42,7 @@ use solidcraft_geom::{Loop2, Mesh, Plane, Region2, Seg2, Vec2, Vec3};
 
 use crate::geom::{Point, Segment, Toolpath};
 use crate::post;
+use crate::process::Process;
 use crate::profile::MachineProfile;
 
 /// Triangle-to-plane distance treated as "lying on the plane" (mm). The tessellation's own
@@ -75,6 +76,26 @@ impl<'a> CutJobRequest<'a> {
     /// A request that cuts the section exactly, with no kerf and no leads.
     pub fn new(mesh: &'a Mesh, plane: Plane, profile: &'a MachineProfile) -> Self {
         Self { mesh, plane, profile, kerf_mm: 0.0, lead_in_mm: 0.0, lead_out_mm: 0.0, curve_tol_mm: 0.01, closure_tol_mm: 1e-6 }
+    }
+
+    /// A request whose cut width comes from the profile's process and whose chord tolerance
+    /// comes from the profile.
+    ///
+    /// This is the path a caller should take. A profile that declares itself a plasma torch
+    /// with a 1.5 mm kerf then compensates without the caller knowing the number, and the same
+    /// call works unchanged for a laser, a waterjet or a router. The leads stay at zero: their
+    /// length depends on the material and the geometry, which a process name cannot know.
+    pub fn for_profile(mesh: &'a Mesh, plane: Plane, profile: &'a MachineProfile) -> Self {
+        Self {
+            mesh,
+            plane,
+            profile,
+            kerf_mm: profile.process.kerf_mm(),
+            lead_in_mm: 0.0,
+            lead_out_mm: 0.0,
+            curve_tol_mm: profile.arc_tolerance_mm,
+            closure_tol_mm: 1e-6,
+        }
     }
 }
 
@@ -113,6 +134,14 @@ pub struct CutOptions {
 impl Default for CutOptions {
     fn default() -> Self {
         Self { kerf_mm: 0.0, lead_in_mm: 0.0, lead_out_mm: 0.0, curve_tol_mm: 0.01, closure_tol_mm: 1e-6 }
+    }
+}
+
+impl CutOptions {
+    /// Cut settings for a process and a profile: the width from the process, the chord
+    /// tolerance from the profile. Leads stay zero — the caller knows the material.
+    pub fn for_process(process: Process, profile: &MachineProfile) -> Self {
+        Self { kerf_mm: process.kerf_mm(), lead_in_mm: 0.0, lead_out_mm: 0.0, curve_tol_mm: profile.arc_tolerance_mm, closure_tol_mm: 1e-6 }
     }
 }
 
@@ -855,6 +884,37 @@ mod tests {
         areas.sort_by(f64::total_cmp);
         assert!(areas[0] < 16.0, "the hole path shrank inside the 4x4 hole, got {}", areas[0]);
         assert!(areas[1] > 100.0, "the outer path grew past 10x10, got {}", areas[1]);
+    }
+
+    #[test]
+    fn a_request_built_from_a_plasma_profile_carries_its_kerf() {
+        // The point of putting the process on the profile: a caller that says "cut this with
+        // the plasma profile" gets kerf compensation without knowing the number. Losing the
+        // wire between profile and request would cut every part 1.5 mm undersized and no
+        // assertion elsewhere would notice.
+        let mut profile = gcode_profile();
+        profile.process = Process::Plasma { kerf_mm: 1.5 };
+        profile.arc_tolerance_mm = 0.2;
+        let mesh = cuboid(Vec3::new(0.0, 0.0, 0.0), Vec3::new(10.0, 10.0, 2.0));
+        let plane = Plane::named("XY").expect("the XY plane").offset(1.0);
+
+        let req = CutJobRequest::for_profile(&mesh, plane, &profile);
+        assert!((req.kerf_mm - 1.5).abs() < 1e-12, "kerf from the process, got {}", req.kerf_mm);
+        assert!((req.curve_tol_mm - 0.2).abs() < 1e-12, "tolerance from the profile, got {}", req.curve_tol_mm);
+
+        // And the offset actually reaches the geometry: the outer path grows by 0.75 mm a side.
+        let section = slice_mesh(&mesh, req.plane, req.closure_tol_mm).expect("a section");
+        let paths = section_to_toolpaths(&section, &req).expect("paths");
+        let area = paths
+            .iter()
+            .map(|tp| {
+                let pts: Vec<Vec2> = tp.segments.iter().map(|s| Vec2::new(s.start().x, s.start().y)).collect();
+                ring_area(&pts).abs()
+            })
+            .fold(0.0_f64, f64::max);
+        // 10 x 10 part with a 0.75 mm outward offset: sides become 11.5; round corners take a
+        // little back, so the area lands just under 132.25.
+        assert!(area > 130.0 && area < 132.25, "outer path area {area} should sit just under 132.25");
     }
 
     #[test]

@@ -45,6 +45,10 @@ pub const TABLE: &[(&str, Class)] = &[
     ("sketch", Class::Layer(1)),
     ("kernel", Class::Layer(1)),
     ("render", Class::Layer(1)),
+    // 2D toolpaths for manufacturing: offset, boolean, nesting, tiling, post-processors.
+    // It reads only `geom`, so it sits at L1 beside the kernel; `io` and `engine` above it
+    // can turn a sketch into machine instructions without the CAM crate knowing either.
+    ("cam", Class::Layer(1)),
     ("doc", Class::Layer(2)),
     ("io", Class::Layer(3)),
     ("engine", Class::Layer(4)),
@@ -54,6 +58,7 @@ pub const TABLE: &[(&str, Class)] = &[
     ("testkit", Class::Testkit),
     // apps and tooling
     ("solidcraft", Class::Exempt),
+    ("vinylcraft", Class::Exempt),
     ("cli", Class::Exempt),
     ("web", Class::Exempt),
     ("xtask", Class::Exempt),
